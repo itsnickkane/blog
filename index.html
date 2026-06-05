@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title id="page-title">Blog</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="site-header">
+  <div class="site-header-inner">
+    <a class="site-title" href="index.html" id="header-title">Blog</a>
+    <nav class="site-nav">
+      <a href="index.html">Home</a>
+    </nav>
+  </div>
+</header>
+
+<main class="main" id="app"></main>
+
+<script src="posts.js"></script>
+<script>
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Parse custom video tags inside post content HTML
+function parseVideoTags(html) {
+  // <youtube id="..." caption="..." />
+  html = html.replace(/<youtube\s+id="([^"]+)"(?:\s+caption="([^"]*)")?\s*\/>/gi, (_, id, cap) => {
+    return videoEmbed(`https://www.youtube-nocookie.com/embed/${id}?rel=0`, cap);
+  });
+  // <vimeo id="..." caption="..." />
+  html = html.replace(/<vimeo\s+id="([^"]+)"(?:\s+caption="([^"]*)")?\s*\/>/gi, (_, id, cap) => {
+    return videoEmbed(`https://player.vimeo.com/video/${id}`, cap);
+  });
+  // <loom id="..." caption="..." />
+  html = html.replace(/<loom\s+id="([^"]+)"(?:\s+caption="([^"]*)")?\s*\/>/gi, (_, id, cap) => {
+    return videoEmbed(`https://www.loom.com/embed/${id}`, cap);
+  });
+  // <vidurl src="..." caption="..." />
+  html = html.replace(/<vidurl\s+src="([^"]+)"(?:\s+caption="([^"]*)")?\s*\/>/gi, (_, src, cap) => {
+    return videoEmbed(src, cap);
+  });
+  return html;
+}
+
+function videoEmbed(src, caption) {
+  const cap = caption ? `<p class="video-caption">${escapeHtml(caption)}</p>` : '';
+  return `
+    <div class="video-embed">
+      <div class="video-wrap">
+        <iframe src="${src}" allowfullscreen allow="autoplay; fullscreen; picture-in-picture"></iframe>
+      </div>
+      ${cap}
+    </div>`;
+}
+
+function formatDate(dateStr) {
+  return dateStr; // already formatted in posts.js
+}
+
+// ── Views ────────────────────────────────────────────────────────────────────
+
+function renderHome() {
+  document.title = SITE_TITLE;
+  document.getElementById('header-title').textContent = SITE_TITLE;
+
+  const sorted = [...POSTS].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  const items = sorted.map(p => `
+    <li class="post-list-item">
+      <span class="post-list-date">${p.date}</span>
+      <a class="post-list-title" href="?post=${p.id}">${escapeHtml(p.title)}</a>
+    </li>`).join('');
+
+  document.getElementById('app').innerHTML = `
+    <div class="home-intro">
+      <p>${escapeHtml(SITE_TAGLINE)}</p>
+    </div>
+    <ul class="post-list">${items}</ul>`;
+}
+
+function renderPost(id) {
+  const post = POSTS.find(p => p.id === id);
+  document.getElementById('header-title').textContent = SITE_TITLE;
+
+  if (!post) {
+    document.title = 'Not Found';
+    document.getElementById('app').innerHTML = `
+      <div class="not-found">
+        <p>Post not found.</p>
+        <p><a href="index.html">← Back home</a></p>
+      </div>`;
+    return;
+  }
+
+  document.title = `${post.title} — ${SITE_TITLE}`;
+
+  const tags = (post.tags || []).map(t => `<span class="post-tag">${escapeHtml(t)}</span>`).join(' ');
+
+  document.getElementById('app').innerHTML = `
+    <a class="back-link" href="index.html">← All posts</a>
+    <article>
+      <header class="post-header">
+        <h1 class="post-title">${escapeHtml(post.title)}</h1>
+        <div class="post-meta">
+          <span>${post.date}</span>
+          ${tags}
+        </div>
+      </header>
+      <div class="post-body">${parseVideoTags(post.content)}</div>
+    </article>`;
+}
+
+// ── Router ───────────────────────────────────────────────────────────────────
+
+function route() {
+  const params = new URLSearchParams(location.search);
+  const postId = params.get('post');
+  if (postId) {
+    renderPost(postId);
+  } else {
+    renderHome();
+  }
+}
+
+window.addEventListener('popstate', route);
+route();
+</script>
+</body>
+</html>
