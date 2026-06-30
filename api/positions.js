@@ -1,4 +1,4 @@
-const { createPublicClient, http, parseAbiItem, fallback } = require('viem')
+const { createPublicClient, http } = require('viem')
 const { base } = require('viem/chains')
 const { Token } = require('@uniswap/sdk-core')
 const { Pool, Position, tickToPrice } = require('@uniswap/v3-sdk')
@@ -33,11 +33,10 @@ const ERC20_ABI = [
   { name: 'symbol',   type: 'function', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'string' }] },
 ]
 
-const INCREASE_LIQUIDITY_EVENT = parseAbiItem(
-  'event IncreaseLiquidity(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)'
-)
-
 const MAX_UINT128 = 2n ** 128n - 1n
+
+// Uniswap v3 Base subgraph — returns deposit history without block scanning
+const SUBGRAPH_URL = 'https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v3-base'
 
 // ── Metrics ───────────────────────────────────────────────────────────────────
 function computeVolatility(closes) {
@@ -66,38 +65,38 @@ async function fetchEthPriceAt(dateStr) {
   return data.market_data?.current_price?.usd ?? null
 }
 
-// ── On-chain contribution registry ───────────────────────────────────────────
-async function fetchRegistry(client, tokenId, t0Decimals, t1Decimals, isToken0ETH, currentEthPrice) {
-  const logs = await client.getLogs({
-    address:   CONTRACTS.nfpm,
-    event:     INCREASE_LIQUIDITY_EVENT,
-    args:      { tokenId },
-    fromBlock: 0n,
-    toBlock:   'latest',
+// ── Subgraph registry — one query, no block scanning ─────────────────────────
+async function fetchRegistry(tokenId, t0Decimals, t1Decimals, isToken0ETH, currentEthPrice) {
+  const query = `{
+    position(id: "${tokenId}") {
+      depositedToken0
+      depositedToken1
+      transaction { timestamp }
+    }
+  }`
+
+  const res  = await fetch(SUBGRAPH_URL, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ query }),
   })
+  const json = await res.json()
+  const pos  = json.data?.position
 
-  if (logs.length === 0) return { mintDate: '', initialToken0Raw: '0', initialToken1Raw: '0', contributions: [], totalCapitalUSD: 0 }
+  if (!pos) return { mintDate: '', initialToken0Raw: '0', initialToken1Raw: '0', contributions: [], totalCapitalUSD: 0 }
 
-  const contributions = []
-  let totalCapitalUSD = 0
+  const date     = new Date(Number(pos.transaction.timestamp) * 1000).toISOString().slice(0, 10)
+  const ethPrice = (await fetchEthPriceAt(date)) ?? currentEthPrice
 
-  for (const log of logs) {
-    const block    = await client.getBlock({ blockNumber: log.blockNumber })
-    const date     = new Date(Number(block.timestamp) * 1000).toISOString().slice(0, 10)
-    const ethPrice = (await fetchEthPriceAt(date)) ?? currentEthPrice
+  // subgraph stores amounts as decimals strings (e.g. "0.436") — convert to raw
+  const dep0     = parseFloat(pos.depositedToken0)
+  const dep1     = parseFloat(pos.depositedToken1)
+  const amount0Raw = BigInt(Math.round(dep0 * 10 ** t0Decimals)).toString()
+  const amount1Raw = BigInt(Math.round(dep1 * 10 ** t1Decimals)).toString()
+  const capitalUSD = isToken0ETH ? dep0 * ethPrice + dep1 : dep0 + dep1 * ethPrice
 
-    const amount0Raw = log.args.amount0.toString()
-    const amount1Raw = log.args.amount1.toString()
-    const amount0Num = Number(log.args.amount0) / 10 ** t0Decimals
-    const amount1Num = Number(log.args.amount1) / 10 ** t1Decimals
-    const capitalUSD = isToken0ETH ? amount0Num * ethPrice + amount1Num : amount0Num + amount1Num * ethPrice
-
-    contributions.push({ date, amount0Raw, amount1Raw, ethPriceUSD: ethPrice, capitalUSD })
-    totalCapitalUSD += capitalUSD
-  }
-
-  const first = contributions[0]
-  return { mintDate: first.date, initialToken0Raw: first.amount0Raw, initialToken1Raw: first.amount1Raw, contributions, totalCapitalUSD }
+  const contribution = { date, amount0Raw, amount1Raw, ethPriceUSD: ethPrice, capitalUSD }
+  return { mintDate: date, initialToken0Raw: amount0Raw, initialToken1Raw: amount1Raw, contributions: [contribution], totalCapitalUSD: capitalUSD }
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -105,10 +104,7 @@ module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300')
 
   try {
-    // Primary client for RPC calls (Alchemy — fast but blocks wide getLogs on free tier)
     const client = createPublicClient({ chain: base, transport: http(process.env.BASE_RPC_URL) })
-    // Logs client uses Base's public RPC — no block-range restriction
-    const logsClient = createPublicClient({ chain: base, transport: http('https://mainnet.base.org') })
 
     // 1. Token IDs
     const balance  = await client.readContract({ address: CONTRACTS.nfpm, abi: NFPM_ABI, functionName: 'balanceOf', args: [MY_ADDRESS] })
@@ -181,7 +177,7 @@ module.exports = async function handler(req, res) {
       const edges    = vol ? sigmaToEdge(price, priceLower, priceUpper, vol.monthlyVol) : { sigmaToLower: 0, sigmaToUpper: 0 }
 
       // On-chain contribution registry — reads IncreaseLiquidity events
-      const reg = await fetchRegistry(logsClient, raw.tokenId, t0.decimals, t1.decimals, isToken0ETH, price)
+      const reg = await fetchRegistry(raw.tokenId, t0.decimals, t1.decimals, isToken0ETH, price)
 
       // IL + ROI from registry
       let ilDollar = 0, ilPct = 0, holdValueUSD = 0, netYieldUSD = 0, roiPct = 0, feeAPR = 0, daysActive = 0
