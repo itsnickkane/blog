@@ -1,4 +1,4 @@
-const { createPublicClient, http, parseAbiItem } = require('viem')
+const { createPublicClient, http, parseAbiItem, fallback } = require('viem')
 const { base } = require('viem/chains')
 const { Token } = require('@uniswap/sdk-core')
 const { Pool, Position, tickToPrice } = require('@uniswap/v3-sdk')
@@ -105,7 +105,10 @@ module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300')
 
   try {
+    // Primary client for RPC calls (Alchemy — fast but blocks wide getLogs on free tier)
     const client = createPublicClient({ chain: base, transport: http(process.env.BASE_RPC_URL) })
+    // Logs client uses Base's public RPC — no block-range restriction
+    const logsClient = createPublicClient({ chain: base, transport: http('https://mainnet.base.org') })
 
     // 1. Token IDs
     const balance  = await client.readContract({ address: CONTRACTS.nfpm, abi: NFPM_ABI, functionName: 'balanceOf', args: [MY_ADDRESS] })
@@ -178,7 +181,7 @@ module.exports = async function handler(req, res) {
       const edges    = vol ? sigmaToEdge(price, priceLower, priceUpper, vol.monthlyVol) : { sigmaToLower: 0, sigmaToUpper: 0 }
 
       // On-chain contribution registry — reads IncreaseLiquidity events
-      const reg = await fetchRegistry(client, raw.tokenId, t0.decimals, t1.decimals, isToken0ETH, price)
+      const reg = await fetchRegistry(logsClient, raw.tokenId, t0.decimals, t1.decimals, isToken0ETH, price)
 
       // IL + ROI from registry
       let ilDollar = 0, ilPct = 0, holdValueUSD = 0, netYieldUSD = 0, roiPct = 0, feeAPR = 0, daysActive = 0
