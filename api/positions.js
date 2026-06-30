@@ -1,7 +1,8 @@
 import { createPublicClient, http } from 'viem'
 import { base } from 'viem/chains'
 import { Token } from '@uniswap/sdk-core'
-import { Pool, Position, tickToPrice } from '@uniswap/v3-sdk'
+import v3sdk from '@uniswap/v3-sdk'
+const { Pool, Position, tickToPrice } = v3sdk
 
 const CHAIN_ID = 8453
 const MY_ADDRESS = process.env.WALLET_ADDRESS ?? '0x9c77233BBD235a3Ed219DAA051E0a3DE5cE03C3E'
