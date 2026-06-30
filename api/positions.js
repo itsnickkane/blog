@@ -1,8 +1,7 @@
-import { createPublicClient, http } from 'viem'
-import { base } from 'viem/chains'
-import { Token } from '@uniswap/sdk-core'
-import v3sdk from '@uniswap/v3-sdk'
-const { Pool, Position, tickToPrice } = v3sdk
+const { createPublicClient, http } = require('viem')
+const { base } = require('viem/chains')
+const { Token } = require('@uniswap/sdk-core')
+const { Pool, Position, tickToPrice } = require('@uniswap/v3-sdk')
 
 const CHAIN_ID = 8453
 const MY_ADDRESS = process.env.WALLET_ADDRESS ?? '0x9c77233BBD235a3Ed219DAA051E0a3DE5cE03C3E'
@@ -62,7 +61,7 @@ const CONTRIBUTIONS = [{ date: '2026-06-02', amountUSD: 1000 }]
 const MAX_UINT128 = 2n ** 128n - 1n
 
 // ── Handler ───────────────────────────────────────────────────────────────────
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300')
 
   try {
