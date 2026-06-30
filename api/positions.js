@@ -1,4 +1,4 @@
-const { createPublicClient, http } = require('viem')
+const { createPublicClient, http, decodeAbiParameters } = require('viem')
 const { base } = require('viem/chains')
 const { Token } = require('@uniswap/sdk-core')
 const { Pool, Position, tickToPrice } = require('@uniswap/v3-sdk')
@@ -35,8 +35,8 @@ const ERC20_ABI = [
 
 const MAX_UINT128 = 2n ** 128n - 1n
 
-// Uniswap v3 Base subgraph — returns deposit history without block scanning
-const SUBGRAPH_URL = 'https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v3-base'
+// IncreaseLiquidity(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)
+const INCREASE_LIQUIDITY_TOPIC = '0x3067048beee31b25b2f1681f88dac838c8bba36af25bfb2b7cf7473a5847e35f'
 
 // ── Metrics ───────────────────────────────────────────────────────────────────
 function computeVolatility(closes) {
@@ -65,38 +65,60 @@ async function fetchEthPriceAt(dateStr) {
   return data.market_data?.current_price?.usd ?? null
 }
 
-// ── Subgraph registry — one query, no block scanning ─────────────────────────
-async function fetchRegistry(tokenId, t0Decimals, t1Decimals, isToken0ETH, currentEthPrice) {
-  const query = `{
-    position(id: "${tokenId}") {
-      depositedToken0
-      depositedToken1
-      transaction { timestamp }
-    }
-  }`
+// ── Registry via Alchemy transfers + tx receipt — no block-range scanning ─────
+async function fetchRegistry(client, tokenId, t0Decimals, t1Decimals, isToken0ETH, currentEthPrice) {
+  const fallback = { mintDate: '', initialToken0Raw: '0', initialToken1Raw: '0', contributions: [], totalCapitalUSD: 0 }
 
-  const res  = await fetch(SUBGRAPH_URL, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ query }),
+  // 1. Find the mint transaction (NFT transfer from 0x0 → MY_ADDRESS)
+  const transfersRes = await client.request({
+    method: 'alchemy_getAssetTransfers',
+    params: [{
+      fromBlock: '0x0',
+      toBlock:   'latest',
+      fromAddress: '0x0000000000000000000000000000000000000000',
+      toAddress:   MY_ADDRESS,
+      contractAddresses: [CONTRACTS.nfpm],
+      category:  ['erc721'],
+      withMetadata: true,
+    }],
   })
-  const json = await res.json()
-  const pos  = json.data?.position
 
-  if (!pos) return { mintDate: '', initialToken0Raw: '0', initialToken1Raw: '0', contributions: [], totalCapitalUSD: 0 }
+  const transfers = transfersRes.transfers ?? []
+  const mintTx = transfers.find(t => t.tokenId != null && BigInt(t.tokenId) === tokenId)
+  if (!mintTx) return fallback
 
-  const date     = new Date(Number(pos.transaction.timestamp) * 1000).toISOString().slice(0, 10)
+  // 2. Get receipt and block for exact amounts + timestamp
+  const [receipt, block] = await Promise.all([
+    client.getTransactionReceipt({ hash: mintTx.hash }),
+    client.getBlock({ blockHash: mintTx.blockHash }),
+  ])
+
+  const date     = new Date(Number(block.timestamp) * 1000).toISOString().slice(0, 10)
   const ethPrice = (await fetchEthPriceAt(date)) ?? currentEthPrice
 
-  // subgraph stores amounts as decimals strings (e.g. "0.436") — convert to raw
-  const dep0     = parseFloat(pos.depositedToken0)
-  const dep1     = parseFloat(pos.depositedToken1)
-  const amount0Raw = BigInt(Math.round(dep0 * 10 ** t0Decimals)).toString()
-  const amount1Raw = BigInt(Math.round(dep1 * 10 ** t1Decimals)).toString()
-  const capitalUSD = isToken0ETH ? dep0 * ethPrice + dep1 : dep0 + dep1 * ethPrice
+  // 3. Find IncreaseLiquidity log for this tokenId in the receipt
+  const tokenIdTopic = '0x' + tokenId.toString(16).padStart(64, '0')
+  const incLog = receipt.logs.find(l =>
+    l.address.toLowerCase() === CONTRACTS.nfpm.toLowerCase() &&
+    l.topics[0] === INCREASE_LIQUIDITY_TOPIC &&
+    l.topics[1] === tokenIdTopic
+  )
+  if (!incLog) return { mintDate: date, initialToken0Raw: '0', initialToken1Raw: '0', contributions: [], totalCapitalUSD: 0 }
 
-  const contribution = { date, amount0Raw, amount1Raw, ethPriceUSD: ethPrice, capitalUSD }
-  return { mintDate: date, initialToken0Raw: amount0Raw, initialToken1Raw: amount1Raw, contributions: [contribution], totalCapitalUSD: capitalUSD }
+  // 4. Decode: IncreaseLiquidity data = abi.encode(uint128 liquidity, uint256 amount0, uint256 amount1)
+  const [, amount0Raw, amount1Raw] = decodeAbiParameters(
+    [{ type: 'uint128' }, { type: 'uint256' }, { type: 'uint256' }],
+    incLog.data
+  )
+
+  const amount0Num  = Number(amount0Raw) / 10 ** t0Decimals
+  const amount1Num  = Number(amount1Raw) / 10 ** t1Decimals
+  const capitalUSD  = isToken0ETH ? amount0Num * ethPrice + amount1Num : amount0Num + amount1Num * ethPrice
+  const a0Str = amount0Raw.toString()
+  const a1Str = amount1Raw.toString()
+
+  const contribution = { date, amount0Raw: a0Str, amount1Raw: a1Str, ethPriceUSD: ethPrice, capitalUSD }
+  return { mintDate: date, initialToken0Raw: a0Str, initialToken1Raw: a1Str, contributions: [contribution], totalCapitalUSD: capitalUSD }
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -176,8 +198,8 @@ module.exports = async function handler(req, res) {
       const C        = concentrationMultiple(price, priceLower, priceUpper)
       const edges    = vol ? sigmaToEdge(price, priceLower, priceUpper, vol.monthlyVol) : { sigmaToLower: 0, sigmaToUpper: 0 }
 
-      // On-chain contribution registry — reads IncreaseLiquidity events
-      const reg = await fetchRegistry(raw.tokenId, t0.decimals, t1.decimals, isToken0ETH, price)
+      // On-chain contribution registry — Alchemy transfers + tx receipt
+      const reg = await fetchRegistry(client, raw.tokenId, t0.decimals, t1.decimals, isToken0ETH, price)
 
       // IL + ROI from registry
       let ilDollar = 0, ilPct = 0, holdValueUSD = 0, netYieldUSD = 0, roiPct = 0, feeAPR = 0, daysActive = 0
