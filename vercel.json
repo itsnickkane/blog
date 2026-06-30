@@ -1,0 +1,8 @@
+{
+  "functions": {
+    "api/positions.js": {
+      "memory": 512,
+      "maxDuration": 30
+    }
+  }
+}

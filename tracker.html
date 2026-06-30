@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LP Tracker — rancho.base.eth</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .tracker-wrap { max-width: 820px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+
+    .tracker-header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: .5rem; margin-bottom: 2rem; }
+    .tracker-header h1 { font-size: 1.25rem; font-weight: 700; margin: 0; }
+    .fetched-at { font-size: .75rem; opacity: .5; }
+
+    .position-card { border: 1px solid var(--border, #e5e7eb); border-radius: 10px; padding: 1.5rem; margin-bottom: 1.5rem; }
+    .card-top { display: flex; align-items: center; gap: .75rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
+    .card-label { font-weight: 700; font-size: 1rem; }
+    .badge { font-size: .7rem; font-weight: 600; padding: .2rem .55rem; border-radius: 999px; }
+    .badge-in  { background: #d1fae5; color: #065f46; }
+    .badge-out { background: #fee2e2; color: #991b1b; }
+    .card-pool { font-size: .8rem; opacity: .55; }
+
+    .metrics-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 1rem; }
+    .metric { display: flex; flex-direction: column; gap: .15rem; }
+    .metric-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; opacity: .5; }
+    .metric-value { font-size: 1.1rem; font-weight: 600; }
+    .metric-sub   { font-size: .75rem; opacity: .6; }
+
+    .divider { border: none; border-top: 1px solid var(--border, #e5e7eb); margin: 1.25rem 0; }
+
+    .bench-card { border: 1px solid var(--border, #e5e7eb); border-radius: 10px; padding: 1.5rem; margin-bottom: 1.5rem; }
+    .bench-card h2 { font-size: .9rem; font-weight: 700; margin: 0 0 1rem; text-transform: uppercase; letter-spacing: .06em; opacity: .6; }
+    .bench-row { display: flex; justify-content: space-between; align-items: baseline; padding: .3rem 0; font-size: .9rem; border-bottom: 1px solid var(--border, #e5e7eb); }
+    .bench-row:last-child { border-bottom: none; }
+    .bench-label { opacity: .65; }
+    .bench-value { font-weight: 600; }
+    .pos  { color: #059669; }
+    .neg  { color: #dc2626; }
+
+    .loading { opacity: .5; padding: 3rem 0; text-align: center; }
+    .error-msg { color: #dc2626; padding: 1rem 0; }
+
+    .refresh-btn { font-size: .78rem; cursor: pointer; opacity: .6; background: none; border: 1px solid currentColor; border-radius: 6px; padding: .25rem .65rem; }
+    .refresh-btn:hover { opacity: 1; }
+  </style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="site-header-inner">
+    <a class="site-title" href="index.html">Blog</a>
+    <nav class="site-nav">
+      <a href="index.html">Home</a>
+      <a href="tracker.html">LP Tracker</a>
+    </nav>
+  </div>
+</header>
+
+<main class="tracker-wrap">
+  <div class="tracker-header">
+    <h1>Uniswap v3 Positions — Base</h1>
+    <div style="display:flex;gap:.75rem;align-items:center;">
+      <span class="fetched-at" id="fetched-at"></span>
+      <button class="refresh-btn" onclick="load()">↻ Refresh</button>
+    </div>
+  </div>
+  <div id="root"><p class="loading">Fetching live on-chain data…</p></div>
+</main>
+
+<script>
+function usd(n)  { return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
+function pct(n)  { const s = (n * 100).toFixed(2); return (n >= 0 ? '+' : '') + s + '%' }
+function sign(n) { return n >= 0 ? 'pos' : 'neg' }
+function pf(n, d=4) { return Number(n).toFixed(d) }
+
+function renderPosition(p) {
+  const statusCls = p.inRange ? 'badge-in' : 'badge-out'
+  const statusTxt = p.inRange ? '✓ In Range'  : '⚠ Out of Range'
+
+  const volLine = p.vol
+    ? `${pf(p.vol.dailyVol*100,2)}% / ${pf(p.vol.monthlyVol*100,2)}% / ${pf(p.vol.annualVol*100,2)}%`
+    : '—'
+
+  const sigmaLine = p.vol
+    ? `${pf(p.sigmaToLower,2)}σ lower · ${pf(p.sigmaToUpper,2)}σ upper`
+    : '—'
+
+  return `
+  <div class="position-card">
+    <div class="card-top">
+      <span class="card-label">${p.label}</span>
+      <span class="badge ${statusCls}">${statusTxt}</span>
+      <span class="card-pool">${p.pool} · ${p.fee}% · ID ${p.tokenId}</span>
+    </div>
+
+    <div class="metrics-grid">
+      <div class="metric">
+        <span class="metric-label">Current Price</span>
+        <span class="metric-value">${usd(p.currentPrice)}</span>
+        <span class="metric-sub">${p.sym1} per ${p.sym0}</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Price Range</span>
+        <span class="metric-value" style="font-size:.9rem">${usd(p.priceLower)} – ${usd(p.priceUpper)}</span>
+        <span class="metric-sub">${sigmaLine}</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Principal</span>
+        <span class="metric-value">${usd(p.principalUSD)}</span>
+        <span class="metric-sub">${pf(p.amount0,4)} ${p.sym0} · ${pf(p.amount1,2)} ${p.sym1}</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Uncollected Fees</span>
+        <span class="metric-value">${usd(p.feesUSD)}</span>
+        <span class="metric-sub">${pf(p.fees0,5)} ${p.sym0} · ${pf(p.fees1,2)} ${p.sym1}</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Total Value</span>
+        <span class="metric-value">${usd(p.totalUSD)}</span>
+        <span class="metric-sub">principal + fees</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Concentration</span>
+        <span class="metric-value">${pf(p.concentration,2)}×</span>
+        <span class="metric-sub">vs full-range</span>
+      </div>
+    </div>
+
+    <hr class="divider" />
+
+    <div class="metrics-grid">
+      <div class="metric">
+        <span class="metric-label">IL vs HODL</span>
+        <span class="metric-value ${sign(p.ilDollar)}">${usd(p.ilDollar)}</span>
+        <span class="metric-sub">${pct(p.ilPct)} · hold ${usd(p.holdValueUSD)}</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Net Yield</span>
+        <span class="metric-value ${sign(p.netYieldUSD)}">${usd(p.netYieldUSD)}</span>
+        <span class="metric-sub">fees − IL</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">ROI</span>
+        <span class="metric-value ${sign(p.roiPct)}">${pct(p.roiPct)}</span>
+        <span class="metric-sub">${pf(p.daysActive,0)} days active</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Fee APR</span>
+        <span class="metric-value pos">${pct(p.feeAPR)}</span>
+        <span class="metric-sub">annualised</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Volatility (d/m/y)</span>
+        <span class="metric-value" style="font-size:.85rem">${volLine}</span>
+        <span class="metric-sub">30-day trailing</span>
+      </div>
+    </div>
+  </div>`
+}
+
+function renderBenchmarks(bm, lpTotal) {
+  if (!bm) return ''
+  const vsStEth    = lpTotal - bm.stEthValueUSD
+  const vsFiftyFif = lpTotal - bm.fiftyFiftyValueUSD
+
+  const rows = bm.details.map(d =>
+    `<div class="bench-row"><span class="bench-label">${d.date} entry</span><span class="bench-value">${pf(d.ethBought,4)} ETH @ ${usd(d.priceAtEntry)}</span></div>`
+  ).join('')
+
+  return `
+  <div class="bench-card">
+    <h2>Portfolio Benchmarks</h2>
+    ${rows}
+    <div class="bench-row"><span class="bench-label">Total contributed</span><span class="bench-value">${usd(bm.totalContributed)}</span></div>
+    <div class="bench-row"><span class="bench-label">Current LP value</span><span class="bench-value">${usd(lpTotal)}</span></div>
+    <hr class="divider" style="margin:.75rem 0" />
+    <div class="bench-row">
+      <span class="bench-label">A · 100% stETH DCA (${pf(bm.stEthEth,4)} ETH)</span>
+      <span class="bench-value">${usd(bm.stEthValueUSD)}</span>
+    </div>
+    <div class="bench-row">
+      <span class="bench-label">LP vs stETH</span>
+      <span class="bench-value ${sign(vsStEth)}">${vsStEth>=0?'+':''}${usd(vsStEth)} (${pct(vsStEth/bm.stEthValueUSD)})</span>
+    </div>
+    <hr class="divider" style="margin:.75rem 0" />
+    <div class="bench-row">
+      <span class="bench-label">B · 50/50 stETH/USDC DCA</span>
+      <span class="bench-value">${usd(bm.fiftyFiftyValueUSD)}</span>
+    </div>
+    <div class="bench-row">
+      <span class="bench-label">LP vs 50/50</span>
+      <span class="bench-value ${sign(vsFiftyFif)}">${vsFiftyFif>=0?'+':''}${usd(vsFiftyFif)} (${pct(vsFiftyFif/bm.fiftyFiftyValueUSD)})</span>
+    </div>
+  </div>`
+}
+
+async function load() {
+  document.getElementById('root').innerHTML = '<p class="loading">Fetching live on-chain data…</p>'
+  document.getElementById('fetched-at').textContent = ''
+  try {
+    const res  = await fetch('/api/positions')
+    const data = await res.json()
+    if (!data.ok) throw new Error(data.error)
+
+    const lpTotal = data.positions.reduce((s, p) => s + p.totalUSD, 0)
+    const html = data.positions.map(renderPosition).join('') + renderBenchmarks(data.benchmarks, lpTotal)
+    document.getElementById('root').innerHTML = html || '<p class="loading">No active positions found.</p>'
+    document.getElementById('fetched-at').textContent = 'updated ' + new Date(data.fetchedAt).toLocaleTimeString()
+  } catch (e) {
+    document.getElementById('root').innerHTML = `<p class="error-msg">Error: ${e.message}</p>`
+  }
+}
+
+load()
+</script>
+</body>
+</html>
