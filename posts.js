@@ -16,6 +16,14 @@ const SITE_TAGLINE = "Writing on things that interest me.";
 
 const POSTS = [
   {
+    id: "lp-tracker",
+    title: "Uniswap v3 LP Tracker",
+    date: "June 30, 2026",
+    tags: ["defi", "crypto"],
+    type: "tracker",
+    content: `<div id="tracker-root"><p class="tracker-loading">Fetching live on-chain data…</p></div>`,
+  },
+  {
     id: "welcome",
     title: "Welcome to the Blog",
     date: "June 5, 2026",

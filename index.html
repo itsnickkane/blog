@@ -5,6 +5,39 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title id="page-title">Blog</title>
   <link rel="stylesheet" href="styles.css" />
+  <style>
+    /* ── LP Tracker ─────────────────────────────────────────────────── */
+    .tracker-loading { opacity:.5; text-align:center; padding:3rem 0; }
+    .tracker-error   { color:#dc2626; padding:1rem 0; }
+    .tracker-header-row { display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:.5rem; margin-bottom:1.5rem; }
+    .tracker-fetched { font-size:.75rem; opacity:.5; }
+    .tracker-refresh { font-size:.78rem; cursor:pointer; opacity:.6; background:none; border:1px solid currentColor; border-radius:6px; padding:.25rem .65rem; }
+    .tracker-refresh:hover { opacity:1; }
+
+    .t-card  { border:1px solid var(--border,#e5e7eb); border-radius:10px; padding:1.5rem; margin-bottom:1.5rem; }
+    .t-top   { display:flex; align-items:center; gap:.75rem; margin-bottom:1.25rem; flex-wrap:wrap; }
+    .t-label { font-weight:700; font-size:1rem; }
+    .t-pool  { font-size:.8rem; opacity:.55; }
+    .t-badge { font-size:.7rem; font-weight:600; padding:.2rem .55rem; border-radius:999px; }
+    .t-in    { background:#d1fae5; color:#065f46; }
+    .t-out   { background:#fee2e2; color:#991b1b; }
+
+    .t-grid  { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:1rem; }
+    .t-metric { display:flex; flex-direction:column; gap:.15rem; }
+    .t-mlabel { font-size:.7rem; text-transform:uppercase; letter-spacing:.05em; opacity:.5; }
+    .t-mvalue { font-size:1.05rem; font-weight:600; }
+    .t-msub   { font-size:.73rem; opacity:.6; }
+    .t-divider { border:none; border-top:1px solid var(--border,#e5e7eb); margin:1.25rem 0; }
+
+    .t-bench  { border:1px solid var(--border,#e5e7eb); border-radius:10px; padding:1.5rem; margin-bottom:1.5rem; }
+    .t-bench h3 { font-size:.85rem; font-weight:700; margin:0 0 1rem; text-transform:uppercase; letter-spacing:.06em; opacity:.6; }
+    .t-brow   { display:flex; justify-content:space-between; align-items:baseline; padding:.3rem 0; font-size:.88rem; border-bottom:1px solid var(--border,#e5e7eb); }
+    .t-brow:last-child { border-bottom:none; }
+    .t-blabel { opacity:.65; }
+    .t-bval   { font-weight:600; }
+    .t-pos    { color:#059669; }
+    .t-neg    { color:#dc2626; }
+  </style>
 </head>
 <body>
 
@@ -114,6 +147,101 @@ function renderPost(id) {
       </header>
       <div class="post-body">${parseVideoTags(post.content)}</div>
     </article>`;
+
+  if (post.type === 'tracker') initTracker();
+}
+
+// ── LP Tracker ────────────────────────────────────────────────────────────────
+
+function usdFmt(n)  { return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 }) }
+function pctFmt(n)  { const s=(n*100).toFixed(2); return (n>=0?'+':'')+s+'%' }
+function signCls(n) { return n>=0?'t-pos':'t-neg' }
+function pf(n,d=4)  { return Number(n).toFixed(d) }
+
+function buildPosition(p) {
+  const volLine = p.vol
+    ? `${pf(p.vol.dailyVol*100,2)}% / ${pf(p.vol.monthlyVol*100,2)}% / ${pf(p.vol.annualVol*100,2)}%`
+    : '—'
+  const sigmaLine = p.vol
+    ? `${pf(p.sigmaToLower,2)}σ lower · ${pf(p.sigmaToUpper,2)}σ upper`
+    : '—'
+
+  return `
+  <div class="t-card">
+    <div class="t-top">
+      <span class="t-label">${p.label}</span>
+      <span class="t-badge ${p.inRange?'t-in':'t-out'}">${p.inRange?'✓ In Range':'⚠ Out of Range'}</span>
+      <span class="t-pool">${p.pool} · ${p.fee}% · ID ${p.tokenId}</span>
+    </div>
+    <div class="t-grid">
+      <div class="t-metric"><span class="t-mlabel">Current Price</span><span class="t-mvalue">${usdFmt(p.currentPrice)}</span><span class="t-msub">${p.sym1} per ${p.sym0}</span></div>
+      <div class="t-metric"><span class="t-mlabel">Price Range</span><span class="t-mvalue" style="font-size:.88rem">${usdFmt(p.priceLower)} – ${usdFmt(p.priceUpper)}</span><span class="t-msub">${sigmaLine}</span></div>
+      <div class="t-metric"><span class="t-mlabel">Principal</span><span class="t-mvalue">${usdFmt(p.principalUSD)}</span><span class="t-msub">${pf(p.amount0,4)} ${p.sym0} · ${pf(p.amount1,2)} ${p.sym1}</span></div>
+      <div class="t-metric"><span class="t-mlabel">Uncollected Fees</span><span class="t-mvalue">${usdFmt(p.feesUSD)}</span><span class="t-msub">${pf(p.fees0,5)} ${p.sym0} · ${pf(p.fees1,2)} ${p.sym1}</span></div>
+      <div class="t-metric"><span class="t-mlabel">Total Value</span><span class="t-mvalue">${usdFmt(p.totalUSD)}</span><span class="t-msub">principal + fees</span></div>
+      <div class="t-metric"><span class="t-mlabel">Concentration</span><span class="t-mvalue">${pf(p.concentration,2)}×</span><span class="t-msub">vs full-range</span></div>
+    </div>
+    <hr class="t-divider" />
+    <div class="t-grid">
+      <div class="t-metric"><span class="t-mlabel">IL vs HODL</span><span class="t-mvalue ${signCls(p.ilDollar)}">${usdFmt(p.ilDollar)}</span><span class="t-msub">${pctFmt(p.ilPct)} · hold ${usdFmt(p.holdValueUSD)}</span></div>
+      <div class="t-metric"><span class="t-mlabel">Net Yield</span><span class="t-mvalue ${signCls(p.netYieldUSD)}">${usdFmt(p.netYieldUSD)}</span><span class="t-msub">fees − IL</span></div>
+      <div class="t-metric"><span class="t-mlabel">ROI</span><span class="t-mvalue ${signCls(p.roiPct)}">${pctFmt(p.roiPct)}</span><span class="t-msub">${pf(p.daysActive,0)} days active</span></div>
+      <div class="t-metric"><span class="t-mlabel">Fee APR</span><span class="t-mvalue t-pos">${pctFmt(p.feeAPR)}</span><span class="t-msub">annualised</span></div>
+      <div class="t-metric"><span class="t-mlabel">Volatility d/m/y</span><span class="t-mvalue" style="font-size:.82rem">${volLine}</span><span class="t-msub">30-day trailing</span></div>
+    </div>
+  </div>`
+}
+
+function buildBenchmarks(bm, lpTotal) {
+  if (!bm) return ''
+  const vsStEth    = lpTotal - bm.stEthValueUSD
+  const vsFiftyFif = lpTotal - bm.fiftyFiftyValueUSD
+  const rows = bm.details.map(d =>
+    `<div class="t-brow"><span class="t-blabel">${d.date} entry</span><span class="t-bval">${pf(d.ethBought,4)} ETH @ ${usdFmt(d.priceAtEntry)}</span></div>`
+  ).join('')
+  return `
+  <div class="t-bench">
+    <h3>Portfolio Benchmarks</h3>
+    ${rows}
+    <div class="t-brow"><span class="t-blabel">Total contributed</span><span class="t-bval">${usdFmt(bm.totalContributed)}</span></div>
+    <div class="t-brow"><span class="t-blabel">Current LP value</span><span class="t-bval">${usdFmt(lpTotal)}</span></div>
+    <hr class="t-divider" style="margin:.75rem 0">
+    <div class="t-brow"><span class="t-blabel">A · 100% stETH DCA (${pf(bm.stEthEth,4)} ETH)</span><span class="t-bval">${usdFmt(bm.stEthValueUSD)}</span></div>
+    <div class="t-brow"><span class="t-blabel">LP vs stETH</span><span class="t-bval ${signCls(vsStEth)}">${usdFmt(vsStEth)} (${pctFmt(vsStEth/bm.stEthValueUSD)})</span></div>
+    <hr class="t-divider" style="margin:.75rem 0">
+    <div class="t-brow"><span class="t-blabel">B · 50/50 stETH/USDC DCA</span><span class="t-bval">${usdFmt(bm.fiftyFiftyValueUSD)}</span></div>
+    <div class="t-brow"><span class="t-blabel">LP vs 50/50</span><span class="t-bval ${signCls(vsFiftyFif)}">${usdFmt(vsFiftyFif)} (${pctFmt(vsFiftyFif/bm.fiftyFiftyValueUSD)})</span></div>
+  </div>`
+}
+
+async function loadTracker() {
+  const root = document.getElementById('tracker-root')
+  if (!root) return
+  root.innerHTML = '<p class="tracker-loading">Fetching live on-chain data…</p>'
+  const fetched = document.getElementById('tracker-fetched')
+  if (fetched) fetched.textContent = ''
+  try {
+    const data = await fetch('/api/positions').then(r => r.json())
+    if (!data.ok) throw new Error(data.error)
+    const lpTotal = data.positions.reduce((s,p) => s + p.totalUSD, 0)
+    root.innerHTML = data.positions.map(buildPosition).join('') + buildBenchmarks(data.benchmarks, lpTotal)
+      || '<p class="tracker-loading">No active positions found.</p>'
+    if (fetched) fetched.textContent = 'updated ' + new Date(data.fetchedAt).toLocaleTimeString()
+  } catch(e) {
+    root.innerHTML = `<p class="tracker-error">Error: ${e.message}</p>`
+  }
+}
+
+function initTracker() {
+  const postBody = document.querySelector('.post-body')
+  if (!postBody) return
+  // Insert refresh controls above the tracker root
+  const controls = document.createElement('div')
+  controls.className = 'tracker-header-row'
+  controls.innerHTML = `<span class="tracker-fetched" id="tracker-fetched"></span>
+    <button class="tracker-refresh" onclick="loadTracker()">↻ Refresh</button>`
+  postBody.insertBefore(controls, postBody.firstChild)
+  loadTracker()
 }
 
 // ── Router ───────────────────────────────────────────────────────────────────
