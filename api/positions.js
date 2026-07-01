@@ -346,14 +346,13 @@ module.exports = async function handler(req, res) {
 
       if (allContribs.length > 0) {
         const ethPrice = positions[0].currentPrice
-        let stEthEth = 0, halfStEthEth = 0, halfUSDC = 0, totalContributed = 0
+        let ethHeld = 0, halfEthHeld = 0, halfUSDC = 0, totalContributed = 0
         const details = []
 
         for (const c of allContribs) {
-          const years     = (Date.now() - new Date(c.date).getTime()) / (365 * 86_400_000)
           const ethBought = c.capitalUSD / c.ethPriceUSD
-          stEthEth     += ethBought * Math.pow(1.03, years)
-          halfStEthEth += (ethBought / 2) * Math.pow(1.03, years)
+          ethHeld      += ethBought
+          halfEthHeld  += ethBought / 2
           halfUSDC     += c.capitalUSD / 2
           totalContributed += c.capitalUSD
           details.push({ date: c.date, priceAtEntry: c.ethPriceUSD, ethBought })
@@ -361,10 +360,10 @@ module.exports = async function handler(req, res) {
 
         benchmarks = {
           totalContributed,
-          stEthValueUSD:      stEthEth * ethPrice,
-          stEthEth,
-          fiftyFiftyValueUSD: halfStEthEth * ethPrice + halfUSDC,
-          halfStEthEth,
+          ethValueUSD:        ethHeld * ethPrice,
+          ethHeld,
+          fiftyFiftyValueUSD: halfEthHeld * ethPrice + halfUSDC,
+          halfEthHeld,
           halfUSDC,
           details,
         }

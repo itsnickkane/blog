@@ -286,7 +286,7 @@ function buildPosition(p) {
 
 function buildBenchmarks(bm, lpTotal) {
   if (!bm) return ''
-  const vsStEth    = lpTotal - bm.stEthValueUSD
+  const vsEth      = lpTotal - bm.ethValueUSD
   const vsFiftyFif = lpTotal - bm.fiftyFiftyValueUSD
   const rows = bm.details.map(d =>
     `<div class="t-brow"><span class="t-blabel">${d.date} entry</span><span class="t-bval">${pf(d.ethBought,4)} ETH @ ${usdFmt(d.priceAtEntry)}</span></div>`
@@ -296,12 +296,12 @@ function buildBenchmarks(bm, lpTotal) {
     <h3>Portfolio Benchmarks</h3>
     ${rows}
     <div class="t-brow"><span class="t-blabel">Total contributed</span><span class="t-bval">${usdFmt(bm.totalContributed)}</span></div>
-    <div class="t-brow"><span class="t-blabel">Current LP value</span><span class="t-bval">${usdFmt(lpTotal)}</span></div>
+    <div class="t-brow"><span class="t-blabel">Current LP + harvest value</span><span class="t-bval">${usdFmt(lpTotal)}</span></div>
     <hr class="t-divider" style="margin:.75rem 0">
-    <div class="t-brow"><span class="t-blabel">A · 100% stETH DCA (${pf(bm.stEthEth,4)} ETH)</span><span class="t-bval">${usdFmt(bm.stEthValueUSD)}</span></div>
-    <div class="t-brow"><span class="t-blabel">LP vs stETH</span><span class="t-bval ${signCls(vsStEth)}">${usdFmt(vsStEth)} (${pctFmt(vsStEth/bm.stEthValueUSD)})</span></div>
+    <div class="t-brow"><span class="t-blabel">A · 100% ETH DCA (${pf(bm.ethHeld,4)} ETH)</span><span class="t-bval">${usdFmt(bm.ethValueUSD)}</span></div>
+    <div class="t-brow"><span class="t-blabel">LP vs ETH</span><span class="t-bval ${signCls(vsEth)}">${usdFmt(vsEth)} (${pctFmt(vsEth/bm.ethValueUSD)})</span></div>
     <hr class="t-divider" style="margin:.75rem 0">
-    <div class="t-brow"><span class="t-blabel">B · 50/50 stETH/USDC DCA</span><span class="t-bval">${usdFmt(bm.fiftyFiftyValueUSD)}</span></div>
+    <div class="t-brow"><span class="t-blabel">B · 50/50 ETH/USDC DCA</span><span class="t-bval">${usdFmt(bm.fiftyFiftyValueUSD)}</span></div>
     <div class="t-brow"><span class="t-blabel">LP vs 50/50</span><span class="t-bval ${signCls(vsFiftyFif)}">${usdFmt(vsFiftyFif)} (${pctFmt(vsFiftyFif/bm.fiftyFiftyValueUSD)})</span></div>
   </div>`
 }
