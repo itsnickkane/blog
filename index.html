@@ -358,6 +358,7 @@ function computeBollingerBands(prices) {
 }
 
 let ethChart = null
+const chartCache = {}
 
 async function loadChart(days) {
   document.querySelectorAll('.t-period-btn').forEach(b =>
@@ -365,9 +366,13 @@ async function loadChart(days) {
   )
   const canvasWrap = document.querySelector('.t-chart-canvas-wrap')
   try {
-    const res  = await fetch(`/api/chart?days=${days}`)
-    const data = await res.json()
-    if (!data.ok) throw new Error(data.error)
+    let data = chartCache[days]
+    if (!data) {
+      const res = await fetch(`/api/chart?days=${days}`)
+      data = await res.json()
+      if (!data.ok) throw new Error(data.error)
+      chartCache[days] = data
+    }
 
     const numDays = days === 'max' ? Infinity : Number(days)
     const prices  = data.prices.map(([, p]) => p)
