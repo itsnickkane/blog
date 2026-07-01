@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title id="page-title">Blog</title>
   <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     /* ── LP Tracker ─────────────────────────────────────────────────── */
     .tracker-loading { opacity:.5; text-align:center; padding:3rem 0; }
@@ -13,6 +14,13 @@
     .tracker-fetched { font-size:.75rem; opacity:.5; }
     .tracker-refresh { font-size:.78rem; cursor:pointer; opacity:.6; background:none; border:1px solid currentColor; border-radius:6px; padding:.25rem .65rem; }
     .tracker-refresh:hover { opacity:1; }
+
+    .t-chart-wrap { margin-bottom:1.5rem; }
+    .t-chart-canvas-wrap { position:relative; height:220px; }
+    .t-chart-periods { display:flex; gap:.35rem; margin-bottom:.6rem; }
+    .t-period-btn { font-size:.72rem; font-weight:600; padding:.2rem .55rem; border-radius:5px; border:1px solid var(--border,#e5e7eb); background:none; cursor:pointer; opacity:.5; }
+    .t-period-btn.active { opacity:1; background:var(--border,#e5e7eb); }
+    .t-period-btn:hover { opacity:.8; }
 
     .t-eth-price { display:flex; flex-direction:column; gap:.2rem; margin-bottom:1.25rem; }
     .t-eth-top   { display:flex; align-items:baseline; gap:.5rem; }
@@ -337,16 +345,120 @@ async function loadTracker() {
   }
 }
 
+function computeBollingerBands(prices) {
+  const period = Math.min(20, Math.max(3, Math.floor(prices.length / 3)))
+  return prices.map((_, i) => {
+    if (i < period - 1) return { upper: null, lower: null }
+    const slice = prices.slice(i - period + 1, i + 1)
+    const ma  = slice.reduce((s, v) => s + v, 0) / period
+    const std = Math.sqrt(slice.reduce((s, v) => s + (v - ma) ** 2, 0) / period)
+    return { upper: ma + 2 * std, lower: ma - 2 * std }
+  })
+}
+
+let ethChart = null
+
+async function loadChart(days) {
+  document.querySelectorAll('.t-period-btn').forEach(b =>
+    b.classList.toggle('active', +b.dataset.days === days)
+  )
+  try {
+    const res  = await fetch(`https://api.coingecko.com/api/v3/coins/ethereum/market_chart?vs_currency=usd&days=${days}`)
+    const data = await res.json()
+
+    const prices  = data.prices.map(([, p]) => p)
+    const volumes = data.total_volumes.map(([, v]) => v)
+    const labels  = data.prices.map(([t]) => {
+      const d = new Date(t)
+      if (days <= 2)  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      if (days <= 90) return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+      return d.toLocaleDateString([], { month: 'short', year: '2-digit' })
+    })
+
+    const bb    = computeBollingerBands(prices)
+    const upper = bb.map(b => b.upper)
+    const lower = bb.map(b => b.lower)
+
+    const datasets = [
+      { label: 'BB Upper', data: upper, borderColor: 'rgba(99,102,241,.2)', borderWidth: 1, pointRadius: 0, fill: 1, backgroundColor: 'rgba(99,102,241,.07)', tension: .3, yAxisID: 'y', order: 2 },
+      { label: 'BB Lower', data: lower, borderColor: 'rgba(99,102,241,.2)', borderWidth: 1, pointRadius: 0, fill: false, tension: .3, yAxisID: 'y', order: 2 },
+      { label: 'ETH',      data: prices, borderColor: 'rgb(99,102,241)', borderWidth: 2, pointRadius: 0, fill: false, tension: .3, yAxisID: 'y', order: 1 },
+      { label: 'Volume',   data: volumes, type: 'bar', backgroundColor: 'rgba(156,163,175,.25)', yAxisID: 'yVol', order: 3 },
+    ]
+
+    if (ethChart) {
+      ethChart.data.labels   = labels
+      ethChart.data.datasets = datasets
+      ethChart.update('none')
+    } else {
+      const ctx = document.getElementById('eth-chart')
+      if (!ctx) return
+      ethChart = new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: c => {
+                  if (c.dataset.label === 'ETH')    return ` $${c.parsed.y.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`
+                  if (c.dataset.label === 'Volume') return ` Vol $${(c.parsed.y/1e9).toFixed(1)}B`
+                  return null
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { maxTicksLimit: 6, font: { size: 10 }, color: 'rgba(0,0,0,.4)' }
+            },
+            y: {
+              position: 'right',
+              grid: { color: 'rgba(0,0,0,.04)' },
+              ticks: { font: { size: 10 }, color: 'rgba(0,0,0,.4)', callback: v => '$' + Math.round(v).toLocaleString() }
+            },
+            yVol: {
+              position: 'left',
+              grid: { display: false },
+              ticks: { display: false },
+              afterDataLimits: s => { s.max = s.max * 5 }
+            }
+          }
+        }
+      })
+    }
+  } catch(e) { console.error('Chart error', e) }
+}
+
 function initTracker() {
   const postBody = document.querySelector('.post-body')
   if (!postBody) return
-  // Insert refresh controls above the tracker root
-  const controls = document.createElement('div')
-  controls.className = 'tracker-header-row'
-  controls.innerHTML = `<span class="tracker-fetched" id="tracker-fetched"></span>
-    <button class="tracker-refresh" onclick="loadTracker()">↻ Refresh</button>`
-  postBody.insertBefore(controls, postBody.firstChild)
+  if (ethChart) { try { ethChart.destroy() } catch {} ethChart = null }
+
+  const header = document.createElement('div')
+  header.innerHTML = `
+    <div class="tracker-header-row">
+      <span class="tracker-fetched" id="tracker-fetched"></span>
+      <button class="tracker-refresh" onclick="loadTracker()">↻ Refresh</button>
+    </div>
+    <div class="t-chart-wrap">
+      <div class="t-chart-periods">
+        <button class="t-period-btn active" data-days="1"   onclick="loadChart(1)">1D</button>
+        <button class="t-period-btn"        data-days="7"   onclick="loadChart(7)">7D</button>
+        <button class="t-period-btn"        data-days="30"  onclick="loadChart(30)">30D</button>
+        <button class="t-period-btn"        data-days="90"  onclick="loadChart(90)">90D</button>
+        <button class="t-period-btn"        data-days="180" onclick="loadChart(180)">6M</button>
+        <button class="t-period-btn"        data-days="365" onclick="loadChart(365)">1Y</button>
+      </div>
+      <div class="t-chart-canvas-wrap"><canvas id="eth-chart"></canvas></div>
+    </div>`
+  postBody.insertBefore(header, postBody.firstChild)
   loadTracker()
+  loadChart(1)
 }
 
 // ── Router ───────────────────────────────────────────────────────────────────
