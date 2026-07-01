@@ -306,12 +306,15 @@ function buildBenchmarks(bm, lpTotal) {
   if (!bm) return ''
   const vsEth      = lpTotal - bm.ethValueUSD
   const vsFiftyFif = lpTotal - bm.fiftyFiftyValueUSD
+  const costBasis  = bm.ethHeld > 0 ? bm.totalContributed / bm.ethHeld : 0
   const rows = bm.details.map(d =>
     `<div class="t-brow"><span class="t-blabel">${d.date} entry</span><span class="t-bval">${pf(d.ethBought,4)} ETH @ ${usdFmt(d.priceAtEntry)}</span></div>`
   ).join('')
   return `
   <div class="t-bench">
     <h3>Portfolio Benchmarks</h3>
+    <div class="t-brow" style="margin-bottom:.5rem"><span class="t-blabel">ETH cost basis</span><span class="t-bval">${usdFmt(costBasis)}</span></div>
+    <hr class="t-divider" style="margin:.5rem 0">
     ${rows}
     <div class="t-brow"><span class="t-blabel">Total contributed</span><span class="t-bval">${usdFmt(bm.totalContributed)}</span></div>
     <div class="t-brow"><span class="t-blabel">Current LP + harvest value</span><span class="t-bval">${usdFmt(lpTotal)}</span></div>
