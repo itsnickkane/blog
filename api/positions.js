@@ -1,4 +1,4 @@
-const { createPublicClient, http, decodeAbiParameters } = require('viem')
+const { createPublicClient, http, decodeAbiParameters, decodeEventLog } = require('viem')
 const { base } = require('viem/chains')
 const { Token } = require('@uniswap/sdk-core')
 const { Pool, Position, tickToPrice } = require('@uniswap/v3-sdk')
@@ -37,8 +37,15 @@ const MAX_UINT128 = 2n ** 128n - 1n
 
 // IncreaseLiquidity(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)
 const INCREASE_LIQUIDITY_TOPIC = '0x3067048beee31b25b2f1681f88dac838c8bba36af25bfb2b7cf7473a5847e35f'
-// Collect(uint256 indexed tokenId, address recipient, uint256 amount0, uint256 amount1)
-const COLLECT_TOPIC = '0x70935338e69775456a85ddef226c395fb668b63fa0115f5f20610b388e6ca9c0'
+const COLLECT_ABI = [{
+  type: 'event', name: 'Collect',
+  inputs: [
+    { name: 'tokenId',        type: 'uint256', indexed: true },
+    { name: 'recipient',      type: 'address', indexed: false },
+    { name: 'amount0Collect', type: 'uint256', indexed: false },
+    { name: 'amount1Collect', type: 'uint256', indexed: false },
+  ],
+}]
 
 // Staked asset token addresses on Base
 const STAKED_ASSETS = {
@@ -165,7 +172,7 @@ async function fetchHarvestedReturns(client, tokenIds, wethAddress, usdcAddress,
 
   // 2. Find unique tx hashes and check receipts for Collect events matching our tokenIds
   const txHashes = [...new Set((transfersRes.transfers ?? []).map(t => t.hash))]
-  const tokenIdTopics = new Set(tokenIds.map(id => '0x' + BigInt(id).toString(16).padStart(64, '0')))
+  const tokenIdSet = new Set(tokenIds.map(id => id.toString()))
 
   const WETH_DECIMALS = 18, USDC_DECIMALS = 6
   let totalWethCollected = 0, totalUsdcCollected = 0
@@ -178,19 +185,16 @@ async function fetchHarvestedReturns(client, tokenIds, wethAddress, usdcAddress,
 
     for (const log of receipt.logs) {
       if (log.address.toLowerCase() !== CONTRACTS.nfpm.toLowerCase()) continue
-      if (log.topics[0] !== COLLECT_TOPIC) continue
-      if (!tokenIdTopics.has(log.topics[1])) continue
+      let decoded
+      try { decoded = decodeEventLog({ abi: COLLECT_ABI, data: log.data, topics: log.topics }) } catch { continue }
+      if (decoded.eventName !== 'Collect') continue
+      if (!tokenIdSet.has(decoded.args.tokenId.toString())) continue
 
-      // Collect data: abi.encode(address recipient, uint256 amount0, uint256 amount1)
-      const [, amount0, amount1] = decodeAbiParameters(
-        [{ type: 'address' }, { type: 'uint256' }, { type: 'uint256' }],
-        log.data
-      )
-      const weth = Number(amount0) / 10 ** WETH_DECIMALS
-      const usdc = Number(amount1) / 10 ** USDC_DECIMALS
+      const weth = Number(decoded.args.amount0Collect) / 10 ** WETH_DECIMALS
+      const usdc = Number(decoded.args.amount1Collect) / 10 ** USDC_DECIMALS
       totalWethCollected += weth
       totalUsdcCollected += usdc
-      collectEvents.push({ date, tokenId: BigInt(log.topics[1]).toString(), weth, usdc })
+      collectEvents.push({ date, tokenId: decoded.args.tokenId.toString(), weth, usdc })
     }
   }
 
