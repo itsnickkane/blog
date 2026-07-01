@@ -66,7 +66,7 @@ async function fetchEthPriceAt(dateStr) {
 }
 
 // ── Registry via Alchemy transfers + tx receipt — no block-range scanning ─────
-async function fetchRegistry(client, tokenId, t0Decimals, t1Decimals, isToken0ETH, currentEthPrice) {
+async function fetchRegistry(client, tokenId, poolAddress, t0Decimals, t1Decimals, isToken0ETH) {
   const fallback = { mintDate: '', initialToken0Raw: '0', initialToken1Raw: '0', contributions: [], totalCapitalUSD: 0 }
 
   // 1. Find the mint transaction (NFT transfer from 0x0 → MY_ADDRESS)
@@ -87,16 +87,25 @@ async function fetchRegistry(client, tokenId, t0Decimals, t1Decimals, isToken0ET
   const mintTx = transfers.find(t => t.tokenId != null && BigInt(t.tokenId) === tokenId)
   if (!mintTx) return fallback
 
-  // 2. Get receipt and block for exact amounts + timestamp
+  // 2. Get receipt and block
   const [receipt, block] = await Promise.all([
     client.getTransactionReceipt({ hash: mintTx.hash }),
     client.getBlock({ blockHash: mintTx.blockHash }),
   ])
 
-  const date     = new Date(Number(block.timestamp) * 1000).toISOString().slice(0, 10)
-  const ethPrice = (await fetchEthPriceAt(date)) ?? currentEthPrice
+  const date = new Date(Number(block.timestamp) * 1000).toISOString().slice(0, 10)
 
-  // 3. Find IncreaseLiquidity log for this tokenId in the receipt
+  // 3. Get pool price at the exact mint block — more accurate than CoinGecko daily price
+  const slot0AtMint = await client.readContract({
+    address: poolAddress, abi: POOL_ABI, functionName: 'slot0', blockNumber: receipt.blockNumber,
+  })
+  const sqrtPrice = Number(slot0AtMint[0]) / 2 ** 96
+  // price = sqrtPrice^2 adjusted for decimal difference (WETH=18, USDC=6 → factor 10^12)
+  const rawPrice  = sqrtPrice * sqrtPrice * 10 ** (t0Decimals - t1Decimals)
+  // rawPrice is token1/token0; if token0=WETH this is USDC/WETH = ETH price in USD
+  const ethPrice  = isToken0ETH ? rawPrice : 1 / rawPrice
+
+  // 4. Find IncreaseLiquidity log for this tokenId in the receipt
   const tokenIdTopic = '0x' + tokenId.toString(16).padStart(64, '0')
   const incLog = receipt.logs.find(l =>
     l.address.toLowerCase() === CONTRACTS.nfpm.toLowerCase() &&
@@ -105,15 +114,15 @@ async function fetchRegistry(client, tokenId, t0Decimals, t1Decimals, isToken0ET
   )
   if (!incLog) return { mintDate: date, initialToken0Raw: '0', initialToken1Raw: '0', contributions: [], totalCapitalUSD: 0 }
 
-  // 4. Decode: IncreaseLiquidity data = abi.encode(uint128 liquidity, uint256 amount0, uint256 amount1)
+  // 5. Decode: IncreaseLiquidity data = abi.encode(uint128 liquidity, uint256 amount0, uint256 amount1)
   const [, amount0Raw, amount1Raw] = decodeAbiParameters(
     [{ type: 'uint128' }, { type: 'uint256' }, { type: 'uint256' }],
     incLog.data
   )
 
-  const amount0Num  = Number(amount0Raw) / 10 ** t0Decimals
-  const amount1Num  = Number(amount1Raw) / 10 ** t1Decimals
-  const capitalUSD  = isToken0ETH ? amount0Num * ethPrice + amount1Num : amount0Num + amount1Num * ethPrice
+  const amount0Num = Number(amount0Raw) / 10 ** t0Decimals
+  const amount1Num = Number(amount1Raw) / 10 ** t1Decimals
+  const capitalUSD = isToken0ETH ? amount0Num * ethPrice + amount1Num : amount0Num + amount1Num * ethPrice
   const a0Str = amount0Raw.toString()
   const a1Str = amount1Raw.toString()
 
@@ -199,7 +208,7 @@ module.exports = async function handler(req, res) {
       const edges    = vol ? sigmaToEdge(price, priceLower, priceUpper, vol.monthlyVol) : { sigmaToLower: 0, sigmaToUpper: 0 }
 
       // On-chain contribution registry — Alchemy transfers + tx receipt
-      const reg = await fetchRegistry(client, raw.tokenId, t0.decimals, t1.decimals, isToken0ETH, price)
+      const reg = await fetchRegistry(client, raw.tokenId, poolAddress, t0.decimals, t1.decimals, isToken0ETH)
 
       // IL + ROI from registry
       let ilDollar = 0, ilPct = 0, holdValueUSD = 0, netYieldUSD = 0, roiPct = 0, feeAPR = 0, daysActive = 0
