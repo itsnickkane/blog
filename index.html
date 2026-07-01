@@ -194,12 +194,14 @@ function buildSummary(positions) {
   const wethFees      = positions.reduce((s,p) => s + (p.sym0==='WETH' ? p.fees0 : p.fees1), 0)
   const usdcFees      = positions.reduce((s,p) => s + (p.sym0==='USDC' ? p.fees0 : p.sym1==='USDC' ? p.fees1 : 0), 0)
 
-  function volSpan(v) {
-    const cls = v < 0.03 ? 't-vol-lo' : 't-vol-hi'
-    return `<span class="${cls}">${pf(v*100,1)}%</span>`
+  function volSpan(v, change) {
+    const arrow = change >  0.005 ? `<span class="t-vol-lo">▲</span>`
+                : change < -0.005 ? `<span class="t-vol-hi">▼</span>`
+                : `<span style="opacity:.35">→</span>`
+    return `${arrow} ${pf(v*100,1)}%`
   }
   const volSub = vol
-    ? `d ${volSpan(vol.dailyVol)} · w ${volSpan(vol.dailyVol*Math.sqrt(7))} · m ${volSpan(vol.monthlyVol)}`
+    ? `d ${volSpan(vol.dailyVol, vol.dailyChange)} · w ${volSpan(vol.dailyVol*Math.sqrt(7), vol.weeklyChange)} · m ${volSpan(vol.monthlyVol, vol.monthlyChange)}`
     : '—'
 
   const totalContributed = positions.reduce((s,p) => s + p.capitalDeployed, 0)

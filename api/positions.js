@@ -247,9 +247,14 @@ module.exports = async function handler(req, res) {
     // 3. CoinGecko vol (30d)
     let vol = null
     try {
-      const cgRes  = await fetch('https://api.coingecko.com/api/v3/coins/ethereum/market_chart?vs_currency=usd&days=31&interval=daily')
-      const cgData = await cgRes.json()
-      vol = computeVolatility(cgData.prices.map(([, p]) => p))
+      const cgRes    = await fetch('https://api.coingecko.com/api/v3/coins/ethereum/market_chart?vs_currency=usd&days=31&interval=daily')
+      const cgData   = await cgRes.json()
+      const prices   = cgData.prices.map(([, p]) => p)
+      vol = computeVolatility(prices)
+      const last = prices[prices.length - 1]
+      vol.dailyChange   = prices.length >= 2  ? (last - prices[prices.length - 2]) / prices[prices.length - 2] : 0
+      vol.weeklyChange  = prices.length >= 8  ? (last - prices[prices.length - 8]) / prices[prices.length - 8] : 0
+      vol.monthlyChange = prices.length >= 31 ? (last - prices[0]) / prices[0] : 0
     } catch { /* vol optional */ }
 
     // 4. Token metadata cache
