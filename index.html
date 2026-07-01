@@ -235,7 +235,7 @@ function buildSummary(positions) {
 function buildHarvest(h, totalContributed) {
   if (!h) return ''
   const dash = `<span style="opacity:.3">—</span>`
-  const wethLine = h.totalWethCollected > 0 ? `${pf(h.totalWethCollected,5)} WETH` : dash
+  const wethLine = h.totalWethCollected > 0 ? pf(h.totalWethCollected,5) : dash
   const usdcLine = h.totalUsdcCollected > 0 ? usdFmt(h.totalUsdcCollected) : dash
   const totalLine = h.totalHarvestUSD > 0 ? usdFmt(h.totalHarvestUSD) : dash
   const cocRaw    = totalContributed > 0 ? h.totalHarvestUSD / totalContributed : 0
