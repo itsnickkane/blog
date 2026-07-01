@@ -14,6 +14,11 @@
     .tracker-refresh { font-size:.78rem; cursor:pointer; opacity:.6; background:none; border:1px solid currentColor; border-radius:6px; padding:.25rem .65rem; }
     .tracker-refresh:hover { opacity:1; }
 
+    .t-eth-price { display:flex; align-items:baseline; gap:.5rem; margin-bottom:1.25rem; }
+    .t-eth-value { font-size:1.75rem; font-weight:700; }
+    .t-eth-label { font-size:.9rem; font-weight:600; opacity:.45; }
+    .t-eth-vol   { font-size:.78rem; opacity:.5; margin-left:.25rem; }
+
     .t-card  { border:1px solid var(--border,#e5e7eb); border-radius:10px; padding:1.5rem; margin-bottom:1.5rem; }
     .t-top   { display:flex; align-items:center; gap:.75rem; margin-bottom:1rem; flex-wrap:wrap; }
     .t-label { font-weight:700; font-size:1rem; }
@@ -191,18 +196,21 @@ function buildSummary(positions) {
     : '—'
 
   return `
+  <div class="t-eth-price">
+    <span class="t-eth-value">${usdFmt(ethPrice)}</span>
+    <span class="t-eth-label">ETH</span>
+    <span class="t-eth-vol">${volSub}</span>
+  </div>
   <div class="t-card" style="margin-bottom:2rem">
     <div class="t-top" style="margin-bottom:1.25rem">
       <span class="t-label">Portfolio Summary</span>
       <span class="t-badge ${inRangeCount===positions.length?'t-in':'t-out'}">${inRangeCount}/${positions.length} in range</span>
     </div>
     <div class="t-grid">
-      <div class="t-metric"><span class="t-mlabel">ETH Price</span><span class="t-mvalue">${usdFmt(ethPrice)}</span><span class="t-msub">${volSub}</span></div>
       <div class="t-metric"><span class="t-mlabel">Total Principal</span><span class="t-mvalue">${usdFmt(totalPrincipal)}</span><span class="t-msub">${pf(wethPrincipal,4)} WETH · ${pf(usdcPrincipal,2)} USDC</span></div>
       <div class="t-metric"><span class="t-mlabel">Uncollected Fees</span><span class="t-mvalue">${usdFmt(totalFees)}</span><span class="t-msub">${pf(wethFees,5)} WETH · ${pf(usdcFees,2)} USDC</span></div>
-      <div class="t-metric"><span class="t-mlabel">Total Value</span><span class="t-mvalue">${usdFmt(totalValue)}</span><span class="t-msub">principal + fees</span></div>
-      <div class="t-metric"><span class="t-mlabel">Avg Concentration</span><span class="t-mvalue">${pf(weightedC,2)}×</span><span class="t-msub">capital-weighted</span></div>
       <div class="t-metric"><span class="t-mlabel">Fee APR</span><span class="t-mvalue t-pos">${pctFmt(weightedAPR)}</span><span class="t-msub">capital-weighted</span></div>
+      <div class="t-metric"><span class="t-mlabel">Avg Concentration</span><span class="t-mvalue">${pf(weightedC,2)}×</span><span class="t-msub">capital-weighted</span></div>
     </div>
   </div>`
 }
