@@ -235,10 +235,8 @@ function buildSummary(positions) {
 function buildHarvest(h, totalContributed) {
   if (!h) return ''
   const dash = `<span style="opacity:.3">—</span>`
-  const wethLine = h.totalWethCollected > 0
-    ? `${pf(h.totalWethCollected,5)} WETH <span style="opacity:.55">(${usdFmt(h.harvestedWethUSD)})</span>`
-    : dash
-  const usdcLine  = h.totalUsdcCollected > 0 ? usdFmt(h.totalUsdcCollected) : dash
+  const wethLine = h.totalWethCollected > 0 ? `${pf(h.totalWethCollected,5)} WETH` : dash
+  const usdcLine = h.totalUsdcCollected > 0 ? usdFmt(h.totalUsdcCollected) : dash
   const totalLine = h.totalHarvestUSD > 0 ? usdFmt(h.totalHarvestUSD) : dash
   const cocRaw    = totalContributed > 0 ? h.totalHarvestUSD / totalContributed : 0
   const cocLine   = cocRaw > 0 ? pctFmt(cocRaw) : dash
@@ -246,8 +244,8 @@ function buildHarvest(h, totalContributed) {
   return `
   <div class="t-bench" style="margin-bottom:1.5rem">
     <h3>Harvested Returns</h3>
-    <div class="t-brow"><span class="t-blabel">WETH collected (all-time)</span><span class="t-bval">${wethLine}</span></div>
-    <div class="t-brow"><span class="t-blabel">USDC collected (all-time)</span><span class="t-bval">${usdcLine}</span></div>
+    <div class="t-brow"><span class="t-blabel">WETH</span><span class="t-bval">${wethLine}</span></div>
+    <div class="t-brow"><span class="t-blabel">USDC</span><span class="t-bval">${usdcLine}</span></div>
     <div class="t-brow"><span class="t-blabel">Total harvest value</span><span class="t-bval">${totalLine}</span></div>
     <div class="t-brow"><span class="t-blabel">Cash-on-cash return</span><span class="t-bval ${cocRaw > 0 ? 't-pos' : ''}">${cocLine}</span></div>
   </div>`
