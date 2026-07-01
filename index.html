@@ -222,25 +222,27 @@ function buildSummary(positions) {
 
 function buildHarvest(h) {
   if (!h) return ''
-  const hasStaked   = h.wstEthBalance > 0 || h.cbEthBalance > 0
-  const hasCollects = h.totalWethCollected > 0 || h.totalUsdcCollected > 0
-  if (!hasStaked && !hasCollects) return ''
-
-  const rows = []
-  if (hasCollects) {
-    rows.push(`<div class="t-brow"><span class="t-blabel">WETH collected (all-time)</span><span class="t-bval">${pf(h.totalWethCollected,5)} WETH <span style="opacity:.55">(${usdFmt(h.harvestedWethUSD)})</span></span></div>`)
-    rows.push(`<div class="t-brow"><span class="t-blabel">USDC collected (all-time)</span><span class="t-bval">${usdFmt(h.totalUsdcCollected)}</span></div>`)
-  }
-  if (h.wstEthBalance > 0)
-    rows.push(`<div class="t-brow"><span class="t-blabel">wstETH held</span><span class="t-bval">${pf(h.wstEthBalance,4)} wstETH <span style="opacity:.55">(≈ ${usdFmt(h.wstEthBalance * (h.stakedValueUSD / (h.wstEthBalance + h.cbEthBalance || 1)))})</span></span></div>`)
-  if (h.cbEthBalance > 0)
-    rows.push(`<div class="t-brow"><span class="t-blabel">cbETH held</span><span class="t-bval">${pf(h.cbEthBalance,4)} cbETH <span style="opacity:.55">(≈ ${usdFmt(h.cbEthBalance * (h.stakedValueUSD / (h.wstEthBalance + h.cbEthBalance || 1)))})</span></span></div>`)
-  rows.push(`<div class="t-brow"><span class="t-blabel">Total harvest value</span><span class="t-bval">${usdFmt(h.totalHarvestUSD)}</span></div>`)
+  const dash = `<span style="opacity:.3">—</span>`
+  const wethLine = h.totalWethCollected > 0
+    ? `${pf(h.totalWethCollected,5)} WETH <span style="opacity:.55">(${usdFmt(h.harvestedWethUSD)})</span>`
+    : dash
+  const usdcLine = h.totalUsdcCollected > 0 ? usdFmt(h.totalUsdcCollected) : dash
+  const wstEthLine = h.wstEthBalance > 0
+    ? `${pf(h.wstEthBalance,4)} wstETH <span style="opacity:.55">(≈ ${usdFmt(h.wstEthBalance * (h.stakedValueUSD / (h.wstEthBalance + h.cbEthBalance || 1)))})</span>`
+    : dash
+  const cbEthLine = h.cbEthBalance > 0
+    ? `${pf(h.cbEthBalance,4)} cbETH <span style="opacity:.55">(≈ ${usdFmt(h.cbEthBalance * (h.stakedValueUSD / (h.wstEthBalance + h.cbEthBalance || 1)))})</span>`
+    : dash
+  const totalLine = h.totalHarvestUSD > 0 ? usdFmt(h.totalHarvestUSD) : dash
 
   return `
   <div class="t-bench" style="margin-bottom:1.5rem">
     <h3>Harvested Returns</h3>
-    ${rows.join('')}
+    <div class="t-brow"><span class="t-blabel">WETH collected (all-time)</span><span class="t-bval">${wethLine}</span></div>
+    <div class="t-brow"><span class="t-blabel">USDC collected (all-time)</span><span class="t-bval">${usdcLine}</span></div>
+    <div class="t-brow"><span class="t-blabel">wstETH held</span><span class="t-bval">${wstEthLine}</span></div>
+    <div class="t-brow"><span class="t-blabel">cbETH held</span><span class="t-bval">${cbEthLine}</span></div>
+    <div class="t-brow"><span class="t-blabel">Total harvest value</span><span class="t-bval">${totalLine}</span></div>
   </div>`
 }
 
