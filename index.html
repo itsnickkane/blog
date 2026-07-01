@@ -317,7 +317,8 @@ async function loadTracker() {
     if (!data.ok) throw new Error(data.error)
     const lpTotal = data.positions.reduce((s,p) => s + p.totalUSD, 0)
     const totalContributed = data.positions.reduce((s,p) => s + p.capitalDeployed, 0)
-    root.innerHTML = buildSummary(data.positions) + buildHarvest(data.harvest, totalContributed) + data.positions.map(buildPosition).join('') + buildBenchmarks(data.benchmarks, lpTotal)
+    const harvestUSD = data.harvest?.totalHarvestUSD ?? 0
+    root.innerHTML = buildSummary(data.positions) + buildHarvest(data.harvest, totalContributed) + data.positions.map(buildPosition).join('') + buildBenchmarks(data.benchmarks, lpTotal + harvestUSD)
       || '<p class="tracker-loading">No active positions found.</p>'
     if (fetched) fetched.textContent = 'updated ' + new Date(data.fetchedAt).toLocaleTimeString()
   } catch(e) {
