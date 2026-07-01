@@ -194,14 +194,15 @@ function buildSummary(positions) {
   const wethFees      = positions.reduce((s,p) => s + (p.sym0==='WETH' ? p.fees0 : p.fees1), 0)
   const usdcFees      = positions.reduce((s,p) => s + (p.sym0==='USDC' ? p.fees0 : p.sym1==='USDC' ? p.fees1 : 0), 0)
 
-  function volSpan(v, change) {
+  function changeSpan(change, label) {
     const arrow = change >  0.005 ? `<span class="t-vol-lo">▲</span>`
                 : change < -0.005 ? `<span class="t-vol-hi">▼</span>`
                 : `<span style="opacity:.35">→</span>`
-    return `${arrow} ${pf(v*100,1)}%`
+    const sign = change >= 0 ? '+' : ''
+    return `${arrow} ${sign}${pf(change*100,1)}% ${label}`
   }
   const volSub = vol
-    ? `d ${volSpan(vol.dailyVol, vol.dailyChange)} · w ${volSpan(vol.dailyVol*Math.sqrt(7), vol.weeklyChange)} · m ${volSpan(vol.monthlyVol, vol.monthlyChange)}`
+    ? `${changeSpan(vol.dailyChange,'1d')} · ${changeSpan(vol.weeklyChange,'7d')} · ${changeSpan(vol.monthlyChange,'30d')}`
     : '—'
 
   const totalContributed = positions.reduce((s,p) => s + p.capitalDeployed, 0)
@@ -291,6 +292,7 @@ function buildPosition(p) {
       <div class="t-metric"><span class="t-mlabel">Uncollected Fees</span><span class="t-mvalue">${usdFmt(p.feesUSD)}</span><span class="t-msub">${pf(p.fees0,5)} ${p.sym0} · ${pf(p.fees1,2)} ${p.sym1}</span></div>
       <div class="t-metric"><span class="t-mlabel">Fee APR</span><span class="t-mvalue t-pos">${pctFmt(p.feeAPR)}</span><span class="t-msub">annualised</span></div>
       <div class="t-metric"><span class="t-mlabel">Concentration</span><span class="t-mvalue">${pf(p.concentration,2)}×</span><span class="t-msub">vs full-range</span></div>
+      <div class="t-metric"><span class="t-mlabel">σ to Edge</span><span class="t-mvalue" style="font-size:.88rem">${pf(p.sigmaToLower,2)}σ ↓ · ${pf(p.sigmaToUpper,2)}σ ↑</span><span class="t-msub">monthly std devs</span></div>
     </div>
   </div>`
 }
