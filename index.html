@@ -386,14 +386,20 @@ async function loadChart(days) {
       return d.toLocaleDateString([], { year: 'numeric' })
     })
 
+    const avg   = prices.reduce((s, v) => s + v, 0) / prices.length
+    const avgEl = document.getElementById('chart-avg-label')
+    if (avgEl) avgEl.textContent = `Avg $${Math.round(avg).toLocaleString()}`
+
     const bb    = computeBollingerBands(prices)
     const upper = bb.map(b => b.upper)
     const lower = bb.map(b => b.lower)
+    const avgLine = prices.map(() => avg)
 
     const datasets = [
-      { label: 'BB Upper', data: upper, borderColor: 'rgba(99,102,241,.2)', borderWidth: 1, pointRadius: 0, fill: 1, backgroundColor: 'rgba(99,102,241,.07)', tension: .3, yAxisID: 'y', order: 2 },
-      { label: 'BB Lower', data: lower, borderColor: 'rgba(99,102,241,.2)', borderWidth: 1, pointRadius: 0, fill: false, tension: .3, yAxisID: 'y', order: 2 },
-      { label: 'ETH',      data: prices, borderColor: 'rgb(99,102,241)', borderWidth: 2, pointRadius: 0, fill: false, tension: .3, yAxisID: 'y', order: 1 },
+      { label: 'BB Upper', data: upper,   borderColor: 'rgba(99,102,241,.2)', borderWidth: 1, pointRadius: 0, fill: 1, backgroundColor: 'rgba(99,102,241,.07)', tension: .3, yAxisID: 'y', order: 2 },
+      { label: 'BB Lower', data: lower,   borderColor: 'rgba(99,102,241,.2)', borderWidth: 1, pointRadius: 0, fill: false, tension: .3, yAxisID: 'y', order: 2 },
+      { label: 'ETH',      data: prices,  borderColor: 'rgb(99,102,241)', borderWidth: 2, pointRadius: 0, fill: false, tension: .3, yAxisID: 'y', order: 1 },
+      { label: 'Avg',      data: avgLine, borderColor: 'rgba(156,163,175,.7)', borderWidth: 1, borderDash: [5, 4], segment: { borderDash: [5,4] }, pointRadius: 0, fill: false, tension: 0, yAxisID: 'y', order: 2 },
       { label: 'Volume',   data: volumes, type: 'bar', backgroundColor: 'rgba(156,163,175,.25)', yAxisID: 'yVol', order: 3 },
     ]
 
@@ -417,6 +423,7 @@ async function loadChart(days) {
                 label: c => {
                   if (c.dataset.label === 'ETH')    return ` $${c.parsed.y.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`
                   if (c.dataset.label === 'Volume') return ` Vol $${(c.parsed.y/1e9).toFixed(1)}B`
+                  if (c.dataset.label === 'Avg')    return null
                   return null
                 }
               }
@@ -474,7 +481,10 @@ function initTracker() {
         <button class="t-period-btn"        data-days="1825" onclick="loadChart(1825)">5Y</button>
         <button class="t-period-btn"        data-days="max"  onclick="loadChart('max')">Max</button>
       </div>
-      <div class="t-chart-canvas-wrap"><canvas id="eth-chart"></canvas></div>
+      <div class="t-chart-canvas-wrap">
+        <div id="chart-avg-label" style="position:absolute;top:.5rem;left:.5rem;font-size:.72rem;font-weight:600;opacity:.65;pointer-events:none;z-index:1"></div>
+        <canvas id="eth-chart"></canvas>
+      </div>
     </div>`
   postBody.insertBefore(header, postBody.firstChild)
   loadTracker()
