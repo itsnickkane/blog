@@ -66,55 +66,56 @@ async function fetchEthPriceAt(dateStr) {
 }
 
 // ── Registry via Alchemy transfers + tx receipt — no block-range scanning ─────
-async function fetchRegistry(client, tokenId, poolAddress, t0Decimals, t1Decimals, isToken0ETH) {
+async function fetchRegistry(client, tokenId, poolAddress, t0Addr, t1Addr, t0Decimals, t1Decimals, isToken0ETH) {
   const fallback = { mintDate: '', initialToken0Raw: '0', initialToken1Raw: '0', contributions: [], totalCapitalUSD: 0 }
 
-  // 1. Find the mint block via Alchemy transfers (NFT transfer from 0x0 → MY_ADDRESS)
-  const transfersRes = await client.request({
+  // 1. Find mint block via ERC721 mint transfer (0x0 → MY_ADDRESS)
+  const mintRes = await client.request({
     method: 'alchemy_getAssetTransfers',
     params: [{
-      fromBlock: '0x0',
-      toBlock:   'latest',
+      fromBlock: '0x0', toBlock: 'latest',
       fromAddress: '0x0000000000000000000000000000000000000000',
-      toAddress:   MY_ADDRESS,
+      toAddress: MY_ADDRESS,
       contractAddresses: [CONTRACTS.nfpm],
-      category:  ['erc721'],
-      withMetadata: true,
+      category: ['erc721'],
+    }],
+  })
+  const mintTx = (mintRes.transfers ?? []).find(t => t.tokenId != null && BigInt(t.tokenId) === tokenId)
+  if (!mintTx) return fallback
+
+  // 2. Find all ERC20 outflows of the position's tokens from user, starting at mint block.
+  //    Each IncreaseLiquidity call pulls tokens FROM the user via transferFrom.
+  const erc20Res = await client.request({
+    method: 'alchemy_getAssetTransfers',
+    params: [{
+      fromBlock: mintTx.blockNum, toBlock: 'latest',
+      fromAddress: MY_ADDRESS,
+      contractAddresses: [t0Addr, t1Addr],
+      category: ['erc20'],
     }],
   })
 
-  const transfers = transfersRes.transfers ?? []
-  const mintTx = transfers.find(t => t.tokenId != null && BigInt(t.tokenId) === tokenId)
-  if (!mintTx) return fallback
+  // 3. Unique tx hashes (one tx may have two token transfers — dedupe)
+  const txHashes = [...new Set((erc20Res.transfers ?? []).map(t => t.hash))]
 
-  const mintBlock = BigInt(mintTx.blockNum)
-
-  // 2. Fetch ALL IncreaseLiquidity events from mint block → latest (small range, no limit issues)
+  // 4. For each tx, check receipt for IncreaseLiquidity matching our tokenId
   const tokenIdTopic = '0x' + tokenId.toString(16).padStart(64, '0')
-  const logs = await client.getLogs({
-    address:   CONTRACTS.nfpm,
-    event:     { type: 'event', name: 'IncreaseLiquidity', inputs: [
-      { name: 'tokenId',   type: 'uint256', indexed: true },
-      { name: 'liquidity', type: 'uint128', indexed: false },
-      { name: 'amount0',   type: 'uint256', indexed: false },
-      { name: 'amount1',   type: 'uint256', indexed: false },
-    ]},
-    args:      { tokenId },
-    fromBlock: mintBlock,
-    toBlock:   'latest',
-  })
-
-  if (logs.length === 0) return fallback
-
-  // 3. For each deposit event, get pool price at that block and accumulate
   const contributions = []
-  let totalCapitalUSD = 0
-  let initialToken0Raw = '0', initialToken1Raw = '0', mintDate = ''
+  let totalCapitalUSD = 0, initialToken0Raw = '0', initialToken1Raw = '0', mintDate = ''
 
-  for (const log of logs) {
+  for (const hash of txHashes) {
+    const receipt = await client.getTransactionReceipt({ hash })
+    const incLog = receipt.logs.find(l =>
+      l.address.toLowerCase() === CONTRACTS.nfpm.toLowerCase() &&
+      l.topics[0] === INCREASE_LIQUIDITY_TOPIC &&
+      l.topics[1] === tokenIdTopic
+    )
+    if (!incLog) continue
+
+    // Get pool price and block timestamp for this specific deposit
     const [slot0AtBlock, block] = await Promise.all([
-      client.readContract({ address: poolAddress, abi: POOL_ABI, functionName: 'slot0', blockNumber: log.blockNumber }),
-      client.getBlock({ blockNumber: log.blockNumber }),
+      client.readContract({ address: poolAddress, abi: POOL_ABI, functionName: 'slot0', blockNumber: receipt.blockNumber }),
+      client.getBlock({ blockNumber: receipt.blockNumber }),
     ])
 
     const sqrtPrice = Number(slot0AtBlock[0]) / 2 ** 96
@@ -122,22 +123,22 @@ async function fetchRegistry(client, tokenId, poolAddress, t0Decimals, t1Decimal
     const ethPrice  = isToken0ETH ? rawPrice : 1 / rawPrice
     const date      = new Date(Number(block.timestamp) * 1000).toISOString().slice(0, 10)
 
-    const amount0Raw = log.args.amount0.toString()
-    const amount1Raw = log.args.amount1.toString()
-    const amount0Num = Number(log.args.amount0) / 10 ** t0Decimals
-    const amount1Num = Number(log.args.amount1) / 10 ** t1Decimals
+    const [, amount0Raw, amount1Raw] = decodeAbiParameters(
+      [{ type: 'uint128' }, { type: 'uint256' }, { type: 'uint256' }],
+      incLog.data
+    )
+    const a0Str = amount0Raw.toString()
+    const a1Str = amount1Raw.toString()
+    const amount0Num = Number(amount0Raw) / 10 ** t0Decimals
+    const amount1Num = Number(amount1Raw) / 10 ** t1Decimals
     const capitalUSD = isToken0ETH ? amount0Num * ethPrice + amount1Num : amount0Num + amount1Num * ethPrice
 
-    contributions.push({ date, amount0Raw, amount1Raw, ethPriceUSD: ethPrice, capitalUSD })
+    contributions.push({ date, amount0Raw: a0Str, amount1Raw: a1Str, ethPriceUSD: ethPrice, capitalUSD })
     totalCapitalUSD += capitalUSD
-
-    if (contributions.length === 1) {
-      initialToken0Raw = amount0Raw
-      initialToken1Raw = amount1Raw
-      mintDate = date
-    }
+    if (contributions.length === 1) { initialToken0Raw = a0Str; initialToken1Raw = a1Str; mintDate = date }
   }
 
+  if (contributions.length === 0) return fallback
   return { mintDate, initialToken0Raw, initialToken1Raw, contributions, totalCapitalUSD }
 }
 
@@ -218,8 +219,8 @@ module.exports = async function handler(req, res) {
       const C        = concentrationMultiple(price, priceLower, priceUpper)
       const edges    = vol ? sigmaToEdge(price, priceLower, priceUpper, vol.monthlyVol) : { sigmaToLower: 0, sigmaToUpper: 0 }
 
-      // On-chain contribution registry — Alchemy transfers + tx receipt
-      const reg = await fetchRegistry(client, raw.tokenId, poolAddress, t0.decimals, t1.decimals, isToken0ETH)
+      // On-chain contribution registry — Alchemy transfers + tx receipt, no getLogs
+      const reg = await fetchRegistry(client, raw.tokenId, poolAddress, raw.token0, raw.token1, t0.decimals, t1.decimals, isToken0ETH)
 
       // IL + ROI from registry
       let ilDollar = 0, ilPct = 0, holdValueUSD = 0, netYieldUSD = 0, roiPct = 0, feeAPR = 0, daysActive = 0
