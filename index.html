@@ -14,10 +14,13 @@
     .tracker-refresh { font-size:.78rem; cursor:pointer; opacity:.6; background:none; border:1px solid currentColor; border-radius:6px; padding:.25rem .65rem; }
     .tracker-refresh:hover { opacity:1; }
 
-    .t-eth-price { display:flex; align-items:baseline; gap:.5rem; margin-bottom:1.25rem; }
+    .t-eth-price { display:flex; flex-direction:column; gap:.2rem; margin-bottom:1.25rem; }
+    .t-eth-top   { display:flex; align-items:baseline; gap:.5rem; }
     .t-eth-value { font-size:1.75rem; font-weight:700; }
     .t-eth-label { font-size:.9rem; font-weight:600; opacity:.45; }
-    .t-eth-vol   { font-size:.78rem; opacity:.5; margin-left:.25rem; }
+    .t-eth-vol   { font-size:.78rem; opacity:.75; }
+    .t-vol-lo    { color:#059669; }
+    .t-vol-hi    { color:#dc2626; }
 
     .t-card  { border:1px solid var(--border,#e5e7eb); border-radius:10px; padding:1.5rem; margin-bottom:1.5rem; }
     .t-top   { display:flex; align-items:center; gap:.75rem; margin-bottom:1rem; flex-wrap:wrap; }
@@ -191,8 +194,12 @@ function buildSummary(positions) {
   const wethFees      = positions.reduce((s,p) => s + (p.sym0==='WETH' ? p.fees0 : p.fees1), 0)
   const usdcFees      = positions.reduce((s,p) => s + (p.sym0==='USDC' ? p.fees0 : p.sym1==='USDC' ? p.fees1 : 0), 0)
 
+  function volSpan(v) {
+    const cls = v < 0.03 ? 't-vol-lo' : 't-vol-hi'
+    return `<span class="${cls}">${pf(v*100,1)}%</span>`
+  }
   const volSub = vol
-    ? `d ${pf(vol.dailyVol*100,2)}% · w ${pf(vol.dailyVol*Math.sqrt(7)*100,2)}% · m ${pf(vol.monthlyVol*100,2)}%`
+    ? `d ${volSpan(vol.dailyVol)} · w ${volSpan(vol.dailyVol*Math.sqrt(7))} · m ${volSpan(vol.monthlyVol)}`
     : '—'
 
   const totalContributed = positions.reduce((s,p) => s + p.capitalDeployed, 0)
@@ -200,8 +207,10 @@ function buildSummary(positions) {
 
   return `
   <div class="t-eth-price">
-    <span class="t-eth-value">${usdFmt(ethPrice)}</span>
-    <span class="t-eth-label">ETH</span>
+    <div class="t-eth-top">
+      <span class="t-eth-value">${usdFmt(ethPrice)}</span>
+      <span class="t-eth-label">ETH</span>
+    </div>
     <span class="t-eth-vol">${volSub}</span>
   </div>
   <div class="t-card" style="margin-bottom:2rem">
