@@ -316,6 +316,7 @@ function buildBenchmarks(bm, lpTotal) {
     <div class="t-brow"><span class="t-blabel">ETH cost basis</span><span class="t-bval">${usdFmt(costBasis)}</span></div>
     <div class="t-brow"><span class="t-blabel">Total contributed</span><span class="t-bval">${usdFmt(bm.totalContributed)}</span></div>
     <div class="t-brow"><span class="t-blabel">LP + harvest value</span><span class="t-bval">${usdFmt(lpTotal)}</span></div>
+    <div class="t-brow"><span class="t-blabel">Total ROI</span><span class="t-bval ${signCls(lpTotal/bm.totalContributed-1)}">${pctFmt(lpTotal/bm.totalContributed-1)}</span></div>
     <hr class="t-divider" style="margin:.75rem 0">
     <div class="t-brow"><span class="t-blabel">A · 100% ETH DCA (${pf(bm.ethHeld,4)} ETH)</span><span class="t-bval">${usdFmt(bm.ethValueUSD)}</span></div>
     <div class="t-brow"><span class="t-blabel">LP vs ETH</span><span class="t-bval ${signCls(vsEth)}">${usdFmt(vsEth)} (${pctFmt(vsEth/bm.ethValueUSD)})</span></div>
