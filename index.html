@@ -363,13 +363,16 @@ async function loadChart(days) {
   document.querySelectorAll('.t-period-btn').forEach(b =>
     b.classList.toggle('active', String(b.dataset.days) === String(days))
   )
+  const canvasWrap = document.querySelector('.t-chart-canvas-wrap')
   try {
-    const res  = await fetch(`https://api.coingecko.com/api/v3/coins/ethereum/market_chart?vs_currency=usd&days=${days}`)
+    const res  = await fetch(`/api/chart?days=${days}`)
     const data = await res.json()
+    if (!data.ok) throw new Error(data.error)
 
     const numDays = days === 'max' ? Infinity : Number(days)
     const prices  = data.prices.map(([, p]) => p)
     const volumes = data.total_volumes.map(([, v]) => v)
+    if (canvasWrap) canvasWrap.style.display = ''
     const labels  = data.prices.map(([t]) => {
       const d = new Date(t)
       if (numDays <= 2)   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -434,7 +437,10 @@ async function loadChart(days) {
         }
       })
     }
-  } catch(e) { console.error('Chart error', e) }
+  } catch(e) {
+    console.error('Chart error', e)
+    if (canvasWrap) canvasWrap.innerHTML = `<p style="opacity:.5;font-size:.8rem;padding:1rem 0">Chart unavailable: ${e.message}</p>`
+  }
 }
 
 function initTracker() {
