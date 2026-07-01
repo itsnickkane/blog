@@ -177,6 +177,7 @@ function buildSummary(positions) {
   const totalFees      = positions.reduce((s,p) => s + p.feesUSD, 0)
   const totalValue     = positions.reduce((s,p) => s + p.totalUSD, 0)
   const weightedC      = positions.reduce((s,p) => s + p.concentration * p.principalUSD, 0) / (totalPrincipal || 1)
+  const weightedAPR    = positions.reduce((s,p) => s + p.feeAPR * p.principalUSD, 0) / (totalPrincipal || 1)
   const inRangeCount   = positions.filter(p => p.inRange).length
 
   // Aggregate token amounts by symbol
@@ -201,6 +202,7 @@ function buildSummary(positions) {
       <div class="t-metric"><span class="t-mlabel">Uncollected Fees</span><span class="t-mvalue">${usdFmt(totalFees)}</span><span class="t-msub">${pf(wethFees,5)} WETH · ${pf(usdcFees,2)} USDC</span></div>
       <div class="t-metric"><span class="t-mlabel">Total Value</span><span class="t-mvalue">${usdFmt(totalValue)}</span><span class="t-msub">principal + fees</span></div>
       <div class="t-metric"><span class="t-mlabel">Avg Concentration</span><span class="t-mvalue">${pf(weightedC,2)}×</span><span class="t-msub">capital-weighted</span></div>
+      <div class="t-metric"><span class="t-mlabel">Fee APR</span><span class="t-mvalue t-pos">${pctFmt(weightedAPR)}</span><span class="t-msub">capital-weighted</span></div>
     </div>
   </div>`
 }
