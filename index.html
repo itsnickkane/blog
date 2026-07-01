@@ -220,6 +220,30 @@ function buildSummary(positions) {
   </div>`
 }
 
+function buildHarvest(h) {
+  if (!h) return ''
+  const hasStaked   = h.wstEthBalance > 0 || h.cbEthBalance > 0
+  const hasCollects = h.totalWethCollected > 0 || h.totalUsdcCollected > 0
+  if (!hasStaked && !hasCollects) return ''
+
+  const rows = []
+  if (hasCollects) {
+    rows.push(`<div class="t-brow"><span class="t-blabel">WETH collected (all-time)</span><span class="t-bval">${pf(h.totalWethCollected,5)} WETH <span style="opacity:.55">(${usdFmt(h.harvestedWethUSD)})</span></span></div>`)
+    rows.push(`<div class="t-brow"><span class="t-blabel">USDC collected (all-time)</span><span class="t-bval">${usdFmt(h.totalUsdcCollected)}</span></div>`)
+  }
+  if (h.wstEthBalance > 0)
+    rows.push(`<div class="t-brow"><span class="t-blabel">wstETH held</span><span class="t-bval">${pf(h.wstEthBalance,4)} wstETH <span style="opacity:.55">(≈ ${usdFmt(h.wstEthBalance * (h.stakedValueUSD / (h.wstEthBalance + h.cbEthBalance || 1)))})</span></span></div>`)
+  if (h.cbEthBalance > 0)
+    rows.push(`<div class="t-brow"><span class="t-blabel">cbETH held</span><span class="t-bval">${pf(h.cbEthBalance,4)} cbETH <span style="opacity:.55">(≈ ${usdFmt(h.cbEthBalance * (h.stakedValueUSD / (h.wstEthBalance + h.cbEthBalance || 1)))})</span></span></div>`)
+  rows.push(`<div class="t-brow"><span class="t-blabel">Total harvest value</span><span class="t-bval">${usdFmt(h.totalHarvestUSD)}</span></div>`)
+
+  return `
+  <div class="t-bench" style="margin-bottom:1.5rem">
+    <h3>Harvested Returns</h3>
+    ${rows.join('')}
+  </div>`
+}
+
 function buildPosition(p) {
   const volLine = p.vol
     ? `d ${pf(p.vol.dailyVol*100,2)}% · w ${pf(p.vol.dailyVol*Math.sqrt(7)*100,2)}% · m ${pf(p.vol.monthlyVol*100,2)}%`
@@ -301,7 +325,7 @@ async function loadTracker() {
     const data = await fetch('/api/positions').then(r => r.json())
     if (!data.ok) throw new Error(data.error)
     const lpTotal = data.positions.reduce((s,p) => s + p.totalUSD, 0)
-    root.innerHTML = buildSummary(data.positions) + data.positions.map(buildPosition).join('') + buildBenchmarks(data.benchmarks, lpTotal)
+    root.innerHTML = buildSummary(data.positions) + buildHarvest(data.harvest) + data.positions.map(buildPosition).join('') + buildBenchmarks(data.benchmarks, lpTotal)
       || '<p class="tracker-loading">No active positions found.</p>'
     if (fetched) fetched.textContent = 'updated ' + new Date(data.fetchedAt).toLocaleTimeString()
   } catch(e) {

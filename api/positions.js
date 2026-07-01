@@ -37,6 +37,14 @@ const MAX_UINT128 = 2n ** 128n - 1n
 
 // IncreaseLiquidity(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)
 const INCREASE_LIQUIDITY_TOPIC = '0x3067048beee31b25b2f1681f88dac838c8bba36af25bfb2b7cf7473a5847e35f'
+// Collect(uint256 indexed tokenId, address recipient, uint256 amount0, uint256 amount1)
+const COLLECT_TOPIC = '0x70935338e69775456a85ddef226c395fb668b63fa0115f5f20610b388e6ca9c0'
+
+// Staked asset token addresses on Base
+const STAKED_ASSETS = {
+  wstETH: { address: '0xc1CBa3fCea344f92D9239c08C0568f6F2F0ee452', symbol: 'wstETH', decimals: 18 },
+  cbETH:  { address: '0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22', symbol: 'cbETH',  decimals: 18 },
+}
 
 // ── Metrics ───────────────────────────────────────────────────────────────────
 function computeVolatility(closes) {
@@ -140,6 +148,78 @@ async function fetchRegistry(client, tokenId, poolAddress, t0Addr, t1Addr, t0Dec
 
   if (contributions.length === 0) return fallback
   return { mintDate, initialToken0Raw, initialToken1Raw, contributions, totalCapitalUSD }
+}
+
+// ── Harvested returns — Collect events + staked asset balances ────────────────
+async function fetchHarvestedReturns(client, tokenIds, wethAddress, usdcAddress, ethPrice) {
+  // 1. Find all ERC20 transfers FROM nfpm TO my address (fee collections)
+  const transfersRes = await client.request({
+    method: 'alchemy_getAssetTransfers',
+    params: [{
+      fromBlock: '0x0', toBlock: 'latest',
+      fromAddress: CONTRACTS.nfpm,
+      toAddress:   MY_ADDRESS,
+      contractAddresses: [wethAddress, usdcAddress],
+      category: ['erc20'],
+    }],
+  })
+
+  // 2. Find unique tx hashes and check receipts for Collect events matching our tokenIds
+  const txHashes = [...new Set((transfersRes.transfers ?? []).map(t => t.hash))]
+  const tokenIdTopics = new Set(tokenIds.map(id => '0x' + BigInt(id).toString(16).padStart(64, '0')))
+
+  const WETH_DECIMALS = 18, USDC_DECIMALS = 6
+  let totalWethCollected = 0, totalUsdcCollected = 0
+  const collectEvents = []
+
+  for (const hash of txHashes) {
+    const receipt = await client.getTransactionReceipt({ hash })
+    const block   = await client.getBlock({ blockNumber: receipt.blockNumber })
+    const date    = new Date(Number(block.timestamp) * 1000).toISOString().slice(0, 10)
+
+    for (const log of receipt.logs) {
+      if (log.address.toLowerCase() !== CONTRACTS.nfpm.toLowerCase()) continue
+      if (log.topics[0] !== COLLECT_TOPIC) continue
+      if (!tokenIdTopics.has(log.topics[1])) continue
+
+      // Collect data: abi.encode(address recipient, uint256 amount0, uint256 amount1)
+      const [, amount0, amount1] = decodeAbiParameters(
+        [{ type: 'address' }, { type: 'uint256' }, { type: 'uint256' }],
+        log.data
+      )
+      const weth = Number(amount0) / 10 ** WETH_DECIMALS
+      const usdc = Number(amount1) / 10 ** USDC_DECIMALS
+      totalWethCollected += weth
+      totalUsdcCollected += usdc
+      collectEvents.push({ date, tokenId: BigInt(log.topics[1]).toString(), weth, usdc })
+    }
+  }
+
+  // 3. Live staked asset balances
+  const BALANCE_ABI = [{ name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] }]
+  const [wstEthRaw, cbEthRaw] = await Promise.all([
+    client.readContract({ address: STAKED_ASSETS.wstETH.address, abi: BALANCE_ABI, functionName: 'balanceOf', args: [MY_ADDRESS] }),
+    client.readContract({ address: STAKED_ASSETS.cbETH.address,  abi: BALANCE_ABI, functionName: 'balanceOf', args: [MY_ADDRESS] }),
+  ])
+
+  const wstEthBalance = Number(wstEthRaw) / 1e18
+  const cbEthBalance  = Number(cbEthRaw)  / 1e18
+  // wstETH trades at a premium to ETH; approximate 1 wstETH ≈ 1.2 ETH (staking yield accumulates in price)
+  // cbETH similarly trades slightly above ETH
+  // Use ethPrice as a conservative floor — user can see token counts and judge
+  const stakedValueUSD = (wstEthBalance + cbEthBalance) * ethPrice
+
+  const harvestedUsdcUSD = totalUsdcCollected
+  const harvestedWethUSD = totalWethCollected * ethPrice
+  const totalHarvestUSD  = harvestedWethUSD + harvestedUsdcUSD + stakedValueUSD
+
+  return {
+    totalWethCollected, totalUsdcCollected,
+    harvestedWethUSD, harvestedUsdcUSD,
+    wstEthBalance, cbEthBalance, stakedValueUSD,
+    totalHarvestUSD,
+    collectEvents,
+  }
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -288,7 +368,22 @@ module.exports = async function handler(req, res) {
       }
     } catch { /* benchmarks optional */ }
 
-    res.status(200).json({ ok: true, address: MY_ADDRESS, fetchedAt: new Date().toISOString(), positions, benchmarks })
+    // 7. Harvested returns — Collect events + staked asset balances
+    let harvest = null
+    try {
+      const wethAddr = active.find(p => p.token0)?.token0  // token0 is always WETH in these pools
+      const usdcAddr = active.find(p => p.token1)?.token1
+      if (wethAddr && usdcAddr) {
+        harvest = await fetchHarvestedReturns(
+          client,
+          positions.map(p => p.tokenId),
+          wethAddr, usdcAddr,
+          positions[0]?.currentPrice ?? 0
+        )
+      }
+    } catch { /* harvest optional */ }
+
+    res.status(200).json({ ok: true, address: MY_ADDRESS, fetchedAt: new Date().toISOString(), positions, benchmarks, harvest })
   } catch (err) {
     console.error(err)
     res.status(500).json({ ok: false, error: err.message })
