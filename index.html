@@ -15,12 +15,24 @@
     .tracker-refresh:hover { opacity:1; }
 
     .t-card  { border:1px solid var(--border,#e5e7eb); border-radius:10px; padding:1.5rem; margin-bottom:1.5rem; }
-    .t-top   { display:flex; align-items:center; gap:.75rem; margin-bottom:1.25rem; flex-wrap:wrap; }
+    .t-top   { display:flex; align-items:center; gap:.75rem; margin-bottom:1rem; flex-wrap:wrap; }
     .t-label { font-weight:700; font-size:1rem; }
     .t-pool  { font-size:.8rem; opacity:.55; }
     .t-badge { font-size:.7rem; font-weight:600; padding:.2rem .55rem; border-radius:999px; }
     .t-in    { background:#d1fae5; color:#065f46; }
     .t-out   { background:#fee2e2; color:#991b1b; }
+
+    .t-range-wrap  { margin-bottom:1.25rem; }
+    .t-range-label { font-size:.7rem; text-transform:uppercase; letter-spacing:.05em; opacity:.5; margin-bottom:.4rem; }
+    .t-range-bounds { display:flex; justify-content:space-between; font-size:.8rem; font-weight:600; margin-bottom:.35rem; }
+    .t-range-bar   { position:relative; height:6px; background:var(--border,#e5e7eb); border-radius:3px; }
+    .t-range-fill  { position:absolute; inset:0; border-radius:3px; }
+    .t-range-fill-in  { background:#d1fae5; }
+    .t-range-fill-out { background:#fee2e2; }
+    .t-range-marker { position:absolute; top:50%; transform:translate(-50%,-50%); width:10px; height:10px; border-radius:50%; border:2px solid #fff; box-shadow:0 0 0 1px currentColor; }
+    .t-range-marker-in  { background:#059669; color:#059669; }
+    .t-range-marker-out { background:#dc2626; color:#dc2626; }
+    .t-range-distances  { display:flex; justify-content:space-between; font-size:.72rem; opacity:.55; margin-top:.3rem; }
 
     .t-grid  { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:1rem; }
     .t-metric { display:flex; flex-direction:column; gap:.15rem; }
@@ -195,26 +207,42 @@ function buildSummary(positions) {
 
 function buildPosition(p) {
   const volLine = p.vol
-    ? `${pf(p.vol.dailyVol*100,2)}% / ${pf(p.vol.monthlyVol*100,2)}% / ${pf(p.vol.annualVol*100,2)}%`
+    ? `d ${pf(p.vol.dailyVol*100,2)}% · w ${pf(p.vol.dailyVol*Math.sqrt(7)*100,2)}% · m ${pf(p.vol.monthlyVol*100,2)}%`
     : '—'
-  const sigmaLine = p.vol
-    ? `${pf(p.sigmaToLower,2)}σ lower · ${pf(p.sigmaToUpper,2)}σ upper`
-    : '—'
+
+  // Range bar: clamp current price position to 0–100%
+  const pos = Math.min(100, Math.max(0,
+    (p.currentPrice - p.priceLower) / (p.priceUpper - p.priceLower) * 100
+  ))
+  const pctToLower = ((p.currentPrice - p.priceLower) / p.currentPrice * 100).toFixed(1)
+  const pctToUpper = ((p.priceUpper - p.currentPrice) / p.currentPrice * 100).toFixed(1)
+  const markerCls  = p.inRange ? 't-range-marker-in' : 't-range-marker-out'
+  const fillCls    = p.inRange ? 't-range-fill-in'   : 't-range-fill-out'
 
   return `
   <div class="t-card">
     <div class="t-top">
-      <span class="t-label">${p.label}</span>
       <span class="t-badge ${p.inRange?'t-in':'t-out'}">${p.inRange?'✓ In Range':'⚠ Out of Range'}</span>
-      <span class="t-pool">${p.pool} · ${p.fee}% · ID ${p.tokenId}</span>
+      <span class="t-label">${usdFmt(p.priceLower)} – ${usdFmt(p.priceUpper)}</span>
+      <span class="t-pool">${p.pool} · ${p.fee}%</span>
+    </div>
+    <div class="t-range-wrap">
+      <div class="t-range-bar">
+        <div class="t-range-fill ${fillCls}" style="left:0;right:0"></div>
+        <div class="t-range-marker ${markerCls}" style="left:${pos}%"></div>
+      </div>
+      <div class="t-range-distances">
+        <span>▲ ${pctToLower}% to lower</span>
+        <span>${usdFmt(p.currentPrice)}</span>
+        <span>${pctToUpper}% to upper ▲</span>
+      </div>
     </div>
     <div class="t-grid">
-      <div class="t-metric"><span class="t-mlabel">Current Price</span><span class="t-mvalue">${usdFmt(p.currentPrice)}</span><span class="t-msub">${p.sym1} per ${p.sym0}</span></div>
-      <div class="t-metric"><span class="t-mlabel">Price Range</span><span class="t-mvalue" style="font-size:.88rem">${usdFmt(p.priceLower)} – ${usdFmt(p.priceUpper)}</span><span class="t-msub">${sigmaLine}</span></div>
       <div class="t-metric"><span class="t-mlabel">Principal</span><span class="t-mvalue">${usdFmt(p.principalUSD)}</span><span class="t-msub">${pf(p.amount0,4)} ${p.sym0} · ${pf(p.amount1,2)} ${p.sym1}</span></div>
       <div class="t-metric"><span class="t-mlabel">Uncollected Fees</span><span class="t-mvalue">${usdFmt(p.feesUSD)}</span><span class="t-msub">${pf(p.fees0,5)} ${p.sym0} · ${pf(p.fees1,2)} ${p.sym1}</span></div>
       <div class="t-metric"><span class="t-mlabel">Total Value</span><span class="t-mvalue">${usdFmt(p.totalUSD)}</span><span class="t-msub">principal + fees</span></div>
       <div class="t-metric"><span class="t-mlabel">Concentration</span><span class="t-mvalue">${pf(p.concentration,2)}×</span><span class="t-msub">vs full-range</span></div>
+      <div class="t-metric"><span class="t-mlabel">Volatility d/w/m</span><span class="t-mvalue" style="font-size:.82rem">${volLine}</span><span class="t-msub">30-day trailing</span></div>
     </div>
     <hr class="t-divider" />
     <div class="t-grid">
@@ -222,7 +250,6 @@ function buildPosition(p) {
       <div class="t-metric"><span class="t-mlabel">Net Yield</span><span class="t-mvalue ${signCls(p.netYieldUSD)}">${usdFmt(p.netYieldUSD)}</span><span class="t-msub">fees − IL</span></div>
       <div class="t-metric"><span class="t-mlabel">ROI</span><span class="t-mvalue ${signCls(p.roiPct)}">${pctFmt(p.roiPct)}</span><span class="t-msub">${pf(p.daysActive,0)} days active</span></div>
       <div class="t-metric"><span class="t-mlabel">Fee APR</span><span class="t-mvalue t-pos">${pctFmt(p.feeAPR)}</span><span class="t-msub">annualised</span></div>
-      <div class="t-metric"><span class="t-mlabel">Volatility d/m/y</span><span class="t-mvalue" style="font-size:.82rem">${volLine}</span><span class="t-msub">30-day trailing</span></div>
     </div>
   </div>`
 }
