@@ -69,7 +69,7 @@ async function fetchEthPriceAt(dateStr) {
 async function fetchRegistry(client, tokenId, poolAddress, t0Decimals, t1Decimals, isToken0ETH) {
   const fallback = { mintDate: '', initialToken0Raw: '0', initialToken1Raw: '0', contributions: [], totalCapitalUSD: 0 }
 
-  // 1. Find the mint transaction (NFT transfer from 0x0 → MY_ADDRESS)
+  // 1. Find the mint block via Alchemy transfers (NFT transfer from 0x0 → MY_ADDRESS)
   const transfersRes = await client.request({
     method: 'alchemy_getAssetTransfers',
     params: [{
@@ -87,47 +87,58 @@ async function fetchRegistry(client, tokenId, poolAddress, t0Decimals, t1Decimal
   const mintTx = transfers.find(t => t.tokenId != null && BigInt(t.tokenId) === tokenId)
   if (!mintTx) return fallback
 
-  // 2. Get receipt and block
-  const [receipt, block] = await Promise.all([
-    client.getTransactionReceipt({ hash: mintTx.hash }),
-    client.getBlock({ blockHash: mintTx.blockHash }),
-  ])
+  const mintBlock = BigInt(mintTx.blockNum)
 
-  const date = new Date(Number(block.timestamp) * 1000).toISOString().slice(0, 10)
-
-  // 3. Get pool price at the exact mint block — more accurate than CoinGecko daily price
-  const slot0AtMint = await client.readContract({
-    address: poolAddress, abi: POOL_ABI, functionName: 'slot0', blockNumber: receipt.blockNumber,
-  })
-  const sqrtPrice = Number(slot0AtMint[0]) / 2 ** 96
-  // price = sqrtPrice^2 adjusted for decimal difference (WETH=18, USDC=6 → factor 10^12)
-  const rawPrice  = sqrtPrice * sqrtPrice * 10 ** (t0Decimals - t1Decimals)
-  // rawPrice is token1/token0; if token0=WETH this is USDC/WETH = ETH price in USD
-  const ethPrice  = isToken0ETH ? rawPrice : 1 / rawPrice
-
-  // 4. Find IncreaseLiquidity log for this tokenId in the receipt
+  // 2. Fetch ALL IncreaseLiquidity events from mint block → latest (small range, no limit issues)
   const tokenIdTopic = '0x' + tokenId.toString(16).padStart(64, '0')
-  const incLog = receipt.logs.find(l =>
-    l.address.toLowerCase() === CONTRACTS.nfpm.toLowerCase() &&
-    l.topics[0] === INCREASE_LIQUIDITY_TOPIC &&
-    l.topics[1] === tokenIdTopic
-  )
-  if (!incLog) return { mintDate: date, initialToken0Raw: '0', initialToken1Raw: '0', contributions: [], totalCapitalUSD: 0 }
+  const logs = await client.getLogs({
+    address:   CONTRACTS.nfpm,
+    event:     { type: 'event', name: 'IncreaseLiquidity', inputs: [
+      { name: 'tokenId',   type: 'uint256', indexed: true },
+      { name: 'liquidity', type: 'uint128', indexed: false },
+      { name: 'amount0',   type: 'uint256', indexed: false },
+      { name: 'amount1',   type: 'uint256', indexed: false },
+    ]},
+    args:      { tokenId },
+    fromBlock: mintBlock,
+    toBlock:   'latest',
+  })
 
-  // 5. Decode: IncreaseLiquidity data = abi.encode(uint128 liquidity, uint256 amount0, uint256 amount1)
-  const [, amount0Raw, amount1Raw] = decodeAbiParameters(
-    [{ type: 'uint128' }, { type: 'uint256' }, { type: 'uint256' }],
-    incLog.data
-  )
+  if (logs.length === 0) return fallback
 
-  const amount0Num = Number(amount0Raw) / 10 ** t0Decimals
-  const amount1Num = Number(amount1Raw) / 10 ** t1Decimals
-  const capitalUSD = isToken0ETH ? amount0Num * ethPrice + amount1Num : amount0Num + amount1Num * ethPrice
-  const a0Str = amount0Raw.toString()
-  const a1Str = amount1Raw.toString()
+  // 3. For each deposit event, get pool price at that block and accumulate
+  const contributions = []
+  let totalCapitalUSD = 0
+  let initialToken0Raw = '0', initialToken1Raw = '0', mintDate = ''
 
-  const contribution = { date, amount0Raw: a0Str, amount1Raw: a1Str, ethPriceUSD: ethPrice, capitalUSD }
-  return { mintDate: date, initialToken0Raw: a0Str, initialToken1Raw: a1Str, contributions: [contribution], totalCapitalUSD: capitalUSD }
+  for (const log of logs) {
+    const [slot0AtBlock, block] = await Promise.all([
+      client.readContract({ address: poolAddress, abi: POOL_ABI, functionName: 'slot0', blockNumber: log.blockNumber }),
+      client.getBlock({ blockNumber: log.blockNumber }),
+    ])
+
+    const sqrtPrice = Number(slot0AtBlock[0]) / 2 ** 96
+    const rawPrice  = sqrtPrice * sqrtPrice * 10 ** (t0Decimals - t1Decimals)
+    const ethPrice  = isToken0ETH ? rawPrice : 1 / rawPrice
+    const date      = new Date(Number(block.timestamp) * 1000).toISOString().slice(0, 10)
+
+    const amount0Raw = log.args.amount0.toString()
+    const amount1Raw = log.args.amount1.toString()
+    const amount0Num = Number(log.args.amount0) / 10 ** t0Decimals
+    const amount1Num = Number(log.args.amount1) / 10 ** t1Decimals
+    const capitalUSD = isToken0ETH ? amount0Num * ethPrice + amount1Num : amount0Num + amount1Num * ethPrice
+
+    contributions.push({ date, amount0Raw, amount1Raw, ethPriceUSD: ethPrice, capitalUSD })
+    totalCapitalUSD += capitalUSD
+
+    if (contributions.length === 1) {
+      initialToken0Raw = amount0Raw
+      initialToken1Raw = amount1Raw
+      mintDate = date
+    }
+  }
+
+  return { mintDate, initialToken0Raw, initialToken1Raw, contributions, totalCapitalUSD }
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
