@@ -274,18 +274,12 @@ function buildPosition(p) {
       </div>
     </div>
     <div class="t-grid">
-      <div class="t-metric"><span class="t-mlabel">Principal</span><span class="t-mvalue">${usdFmt(p.principalUSD)}</span><span class="t-msub">${pf(p.amount0,4)} ${p.sym0} · ${pf(p.amount1,2)} ${p.sym1}</span></div>
+      <div class="t-metric"><span class="t-mlabel">Total Principal</span><span class="t-mvalue">${usdFmt(p.principalUSD)}</span><span class="t-msub">${pf(p.amount0,4)} ${p.sym0} · ${pf(p.amount1,2)} ${p.sym1}</span></div>
+      <div class="t-metric"><span class="t-mlabel">Total Contributed</span><span class="t-mvalue">${usdFmt(p.capitalDeployed)}</span><span class="t-msub">capital deployed</span></div>
+      <div class="t-metric"><span class="t-mlabel">ROI</span><span class="t-mvalue ${signCls(p.roiPct)}">${pctFmt(p.roiPct)}</span><span class="t-msub">${pf(p.daysActive,1)} days active</span></div>
       <div class="t-metric"><span class="t-mlabel">Uncollected Fees</span><span class="t-mvalue">${usdFmt(p.feesUSD)}</span><span class="t-msub">${pf(p.fees0,5)} ${p.sym0} · ${pf(p.fees1,2)} ${p.sym1}</span></div>
-      <div class="t-metric"><span class="t-mlabel">Total Value</span><span class="t-mvalue">${usdFmt(p.totalUSD)}</span><span class="t-msub">principal + fees</span></div>
-      <div class="t-metric"><span class="t-mlabel">Concentration</span><span class="t-mvalue">${pf(p.concentration,2)}×</span><span class="t-msub">vs full-range</span></div>
-      <div class="t-metric"><span class="t-mlabel">Volatility d/w/m</span><span class="t-mvalue" style="font-size:.82rem">${volLine}</span><span class="t-msub">30-day trailing</span></div>
-    </div>
-    <hr class="t-divider" />
-    <div class="t-grid">
-      <div class="t-metric"><span class="t-mlabel">IL vs HODL</span><span class="t-mvalue ${signCls(p.ilDollar)}">${usdFmt(p.ilDollar)}</span><span class="t-msub">${pctFmt(p.ilPct)} · hold ${usdFmt(p.holdValueUSD)}</span></div>
-      <div class="t-metric"><span class="t-mlabel">Net Yield</span><span class="t-mvalue ${signCls(p.netYieldUSD)}">${usdFmt(p.netYieldUSD)}</span><span class="t-msub">fees − IL</span></div>
-      <div class="t-metric"><span class="t-mlabel">ROI</span><span class="t-mvalue ${signCls(p.roiPct)}">${pctFmt(p.roiPct)}</span><span class="t-msub">${pf(p.daysActive,0)} days active</span></div>
       <div class="t-metric"><span class="t-mlabel">Fee APR</span><span class="t-mvalue t-pos">${pctFmt(p.feeAPR)}</span><span class="t-msub">annualised</span></div>
+      <div class="t-metric"><span class="t-mlabel">Concentration</span><span class="t-mvalue">${pf(p.concentration,2)}×</span><span class="t-msub">vs full-range</span></div>
     </div>
   </div>`
 }
