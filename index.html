@@ -159,13 +159,23 @@ function signCls(n) { return n>=0?'t-pos':'t-neg' }
 function pf(n,d=4)  { return Number(n).toFixed(d) }
 
 function buildSummary(positions) {
-  const ethPrice      = positions[0]?.currentPrice ?? 0
+  const ethPrice       = positions[0]?.currentPrice ?? 0
+  const vol            = positions[0]?.vol ?? null
   const totalPrincipal = positions.reduce((s,p) => s + p.principalUSD, 0)
-  const totalFees     = positions.reduce((s,p) => s + p.feesUSD, 0)
-  const totalValue    = positions.reduce((s,p) => s + p.totalUSD, 0)
-  // Capital-weighted average concentration
-  const weightedC = positions.reduce((s,p) => s + p.concentration * p.principalUSD, 0) / (totalPrincipal || 1)
-  const inRangeCount = positions.filter(p => p.inRange).length
+  const totalFees      = positions.reduce((s,p) => s + p.feesUSD, 0)
+  const totalValue     = positions.reduce((s,p) => s + p.totalUSD, 0)
+  const weightedC      = positions.reduce((s,p) => s + p.concentration * p.principalUSD, 0) / (totalPrincipal || 1)
+  const inRangeCount   = positions.filter(p => p.inRange).length
+
+  // Aggregate token amounts by symbol
+  const wethPrincipal = positions.reduce((s,p) => s + (p.sym0==='WETH' ? p.amount0 : p.amount1), 0)
+  const usdcPrincipal = positions.reduce((s,p) => s + (p.sym0==='USDC' ? p.amount0 : p.sym1==='USDC' ? p.amount1 : 0), 0)
+  const wethFees      = positions.reduce((s,p) => s + (p.sym0==='WETH' ? p.fees0 : p.fees1), 0)
+  const usdcFees      = positions.reduce((s,p) => s + (p.sym0==='USDC' ? p.fees0 : p.sym1==='USDC' ? p.fees1 : 0), 0)
+
+  const volSub = vol
+    ? `d ${pf(vol.dailyVol*100,2)}% · w ${pf(vol.dailyVol*Math.sqrt(7)*100,2)}% · m ${pf(vol.monthlyVol*100,2)}%`
+    : '—'
 
   return `
   <div class="t-card" style="margin-bottom:2rem">
@@ -174,9 +184,9 @@ function buildSummary(positions) {
       <span class="t-badge ${inRangeCount===positions.length?'t-in':'t-out'}">${inRangeCount}/${positions.length} in range</span>
     </div>
     <div class="t-grid">
-      <div class="t-metric"><span class="t-mlabel">ETH Price</span><span class="t-mvalue">${usdFmt(ethPrice)}</span><span class="t-msub">current</span></div>
-      <div class="t-metric"><span class="t-mlabel">Total Principal</span><span class="t-mvalue">${usdFmt(totalPrincipal)}</span><span class="t-msub">across ${positions.length} positions</span></div>
-      <div class="t-metric"><span class="t-mlabel">Uncollected Fees</span><span class="t-mvalue">${usdFmt(totalFees)}</span><span class="t-msub">all positions</span></div>
+      <div class="t-metric"><span class="t-mlabel">ETH Price</span><span class="t-mvalue">${usdFmt(ethPrice)}</span><span class="t-msub">${volSub}</span></div>
+      <div class="t-metric"><span class="t-mlabel">Total Principal</span><span class="t-mvalue">${usdFmt(totalPrincipal)}</span><span class="t-msub">${pf(wethPrincipal,4)} WETH · ${pf(usdcPrincipal,2)} USDC</span></div>
+      <div class="t-metric"><span class="t-mlabel">Uncollected Fees</span><span class="t-mvalue">${usdFmt(totalFees)}</span><span class="t-msub">${pf(wethFees,5)} WETH · ${pf(usdcFees,2)} USDC</span></div>
       <div class="t-metric"><span class="t-mlabel">Total Value</span><span class="t-mvalue">${usdFmt(totalValue)}</span><span class="t-msub">principal + fees</span></div>
       <div class="t-metric"><span class="t-mlabel">Avg Concentration</span><span class="t-mvalue">${pf(weightedC,2)}×</span><span class="t-msub">capital-weighted</span></div>
     </div>
