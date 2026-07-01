@@ -152,13 +152,12 @@ async function fetchRegistry(client, tokenId, poolAddress, t0Addr, t1Addr, t0Dec
 
 // ── Harvested returns — Collect events + staked asset balances ────────────────
 async function fetchHarvestedReturns(client, tokenIds, wethAddress, usdcAddress, ethPrice) {
-  // 1. Find all ERC20 transfers FROM nfpm TO my address (fee collections)
+  // 1. Find all inbound WETH/USDC transfers to my address — pool sends tokens directly to recipient
   const transfersRes = await client.request({
     method: 'alchemy_getAssetTransfers',
     params: [{
       fromBlock: '0x0', toBlock: 'latest',
-      fromAddress: CONTRACTS.nfpm,
-      toAddress:   MY_ADDRESS,
+      toAddress: MY_ADDRESS,
       contractAddresses: [wethAddress, usdcAddress],
       category: ['erc20'],
     }],
