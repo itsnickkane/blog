@@ -186,22 +186,9 @@ function pctFmt(n)  { const s=(n*100).toFixed(2); return (n>=0?'+':'')+s+'%' }
 function signCls(n) { return n>=0?'t-pos':'t-neg' }
 function pf(n,d=4)  { return Number(n).toFixed(d) }
 
-function buildSummary(positions) {
-  const ethPrice       = positions[0]?.currentPrice ?? 0
-  const vol            = positions[0]?.vol ?? null
-  const totalPrincipal = positions.reduce((s,p) => s + p.principalUSD, 0)
-  const totalFees      = positions.reduce((s,p) => s + p.feesUSD, 0)
-  const totalValue     = positions.reduce((s,p) => s + p.totalUSD, 0)
-  const weightedC      = positions.reduce((s,p) => s + p.concentration * p.principalUSD, 0) / (totalPrincipal || 1)
-  const weightedAPR    = positions.reduce((s,p) => s + p.feeAPR * p.principalUSD, 0) / (totalPrincipal || 1)
-  const inRangeCount   = positions.filter(p => p.inRange).length
-
-  // Aggregate token amounts by symbol
-  const wethPrincipal = positions.reduce((s,p) => s + (p.sym0==='WETH' ? p.amount0 : p.amount1), 0)
-  const usdcPrincipal = positions.reduce((s,p) => s + (p.sym0==='USDC' ? p.amount0 : p.sym1==='USDC' ? p.amount1 : 0), 0)
-  const wethFees      = positions.reduce((s,p) => s + (p.sym0==='WETH' ? p.fees0 : p.fees1), 0)
-  const usdcFees      = positions.reduce((s,p) => s + (p.sym0==='USDC' ? p.fees0 : p.sym1==='USDC' ? p.fees1 : 0), 0)
-
+function buildEthPrice(positions) {
+  const ethPrice = positions[0]?.currentPrice ?? 0
+  const vol      = positions[0]?.vol ?? null
   function changeSpan(change, label) {
     const arrow = change >  0.005 ? `<span class="t-vol-lo">▲</span>`
                 : change < -0.005 ? `<span class="t-vol-hi">▼</span>`
@@ -212,10 +199,6 @@ function buildSummary(positions) {
   const volSub = vol
     ? `${changeSpan(vol.dailyChange,'1d')} · ${changeSpan(vol.weeklyChange,'7d')} · ${changeSpan(vol.monthlyChange,'30d')}`
     : '—'
-
-  const totalContributed = positions.reduce((s,p) => s + p.capitalDeployed, 0)
-  const roi = totalContributed > 0 ? (totalPrincipal - totalContributed) / totalContributed : 0
-
   return `
   <div class="t-eth-price">
     <div class="t-eth-top">
@@ -223,7 +206,23 @@ function buildSummary(positions) {
       <span class="t-eth-label">ETH</span>
     </div>
     <span class="t-eth-vol">${volSub}</span>
-  </div>
+  </div>`
+}
+
+function buildSummary(positions) {
+  const totalPrincipal = positions.reduce((s,p) => s + p.principalUSD, 0)
+  const totalFees      = positions.reduce((s,p) => s + p.feesUSD, 0)
+  const weightedC      = positions.reduce((s,p) => s + p.concentration * p.principalUSD, 0) / (totalPrincipal || 1)
+  const weightedAPR    = positions.reduce((s,p) => s + p.feeAPR * p.principalUSD, 0) / (totalPrincipal || 1)
+  const inRangeCount   = positions.filter(p => p.inRange).length
+  const wethPrincipal  = positions.reduce((s,p) => s + (p.sym0==='WETH' ? p.amount0 : p.amount1), 0)
+  const usdcPrincipal  = positions.reduce((s,p) => s + (p.sym0==='USDC' ? p.amount0 : p.sym1==='USDC' ? p.amount1 : 0), 0)
+  const wethFees       = positions.reduce((s,p) => s + (p.sym0==='WETH' ? p.fees0 : p.fees1), 0)
+  const usdcFees       = positions.reduce((s,p) => s + (p.sym0==='USDC' ? p.fees0 : p.sym1==='USDC' ? p.fees1 : 0), 0)
+  const totalContributed = positions.reduce((s,p) => s + p.capitalDeployed, 0)
+  const roi = totalContributed > 0 ? (totalPrincipal - totalContributed) / totalContributed : 0
+
+  return `
   <div class="t-card" style="margin-bottom:2rem">
     <div class="t-top" style="margin-bottom:1.25rem">
       <span class="t-label">Portfolio Summary</span>
@@ -337,6 +336,8 @@ async function loadTracker() {
     const lpTotal = data.positions.reduce((s,p) => s + p.totalUSD, 0)
     const totalContributed = data.positions.reduce((s,p) => s + p.capitalDeployed, 0)
     const harvestUSD = data.harvest?.totalHarvestUSD ?? 0
+    const ethPriceEl = document.getElementById('tracker-eth-price')
+    if (ethPriceEl) ethPriceEl.innerHTML = buildEthPrice(data.positions)
     root.innerHTML = buildSummary(data.positions) + buildHarvest(data.harvest, totalContributed) + data.positions.map(buildPosition).join('') + buildBenchmarks(data.benchmarks, lpTotal + harvestUSD)
       || '<p class="tracker-loading">No active positions found.</p>'
     if (fetched) fetched.textContent = 'updated ' + new Date(data.fetchedAt).toLocaleTimeString()
@@ -360,19 +361,21 @@ let ethChart = null
 
 async function loadChart(days) {
   document.querySelectorAll('.t-period-btn').forEach(b =>
-    b.classList.toggle('active', +b.dataset.days === days)
+    b.classList.toggle('active', String(b.dataset.days) === String(days))
   )
   try {
     const res  = await fetch(`https://api.coingecko.com/api/v3/coins/ethereum/market_chart?vs_currency=usd&days=${days}`)
     const data = await res.json()
 
+    const numDays = days === 'max' ? Infinity : Number(days)
     const prices  = data.prices.map(([, p]) => p)
     const volumes = data.total_volumes.map(([, v]) => v)
     const labels  = data.prices.map(([t]) => {
       const d = new Date(t)
-      if (days <= 2)  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      if (days <= 90) return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
-      return d.toLocaleDateString([], { month: 'short', year: '2-digit' })
+      if (numDays <= 2)   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      if (numDays <= 90)  return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+      if (numDays <= 365) return d.toLocaleDateString([], { month: 'short', year: '2-digit' })
+      return d.toLocaleDateString([], { year: 'numeric' })
     })
 
     const bb    = computeBollingerBands(prices)
@@ -445,14 +448,20 @@ function initTracker() {
       <span class="tracker-fetched" id="tracker-fetched"></span>
       <button class="tracker-refresh" onclick="loadTracker()">↻ Refresh</button>
     </div>
+    <div id="tracker-eth-price"></div>
     <div class="t-chart-wrap">
       <div class="t-chart-periods">
-        <button class="t-period-btn active" data-days="1"   onclick="loadChart(1)">1D</button>
-        <button class="t-period-btn"        data-days="7"   onclick="loadChart(7)">7D</button>
-        <button class="t-period-btn"        data-days="30"  onclick="loadChart(30)">30D</button>
-        <button class="t-period-btn"        data-days="90"  onclick="loadChart(90)">90D</button>
-        <button class="t-period-btn"        data-days="180" onclick="loadChart(180)">6M</button>
-        <button class="t-period-btn"        data-days="365" onclick="loadChart(365)">1Y</button>
+        <button class="t-period-btn active" data-days="1"    onclick="loadChart(1)">1D</button>
+        <button class="t-period-btn"        data-days="7"    onclick="loadChart(7)">7D</button>
+        <button class="t-period-btn"        data-days="30"   onclick="loadChart(30)">30D</button>
+        <button class="t-period-btn"        data-days="90"   onclick="loadChart(90)">90D</button>
+        <button class="t-period-btn"        data-days="180"  onclick="loadChart(180)">6M</button>
+        <button class="t-period-btn"        data-days="365"  onclick="loadChart(365)">1Y</button>
+        <button class="t-period-btn"        data-days="730"  onclick="loadChart(730)">2Y</button>
+        <button class="t-period-btn"        data-days="1095" onclick="loadChart(1095)">3Y</button>
+        <button class="t-period-btn"        data-days="1460" onclick="loadChart(1460)">4Y</button>
+        <button class="t-period-btn"        data-days="1825" onclick="loadChart(1825)">5Y</button>
+        <button class="t-period-btn"        data-days="max"  onclick="loadChart('max')">Max</button>
       </div>
       <div class="t-chart-canvas-wrap"><canvas id="eth-chart"></canvas></div>
     </div>`
